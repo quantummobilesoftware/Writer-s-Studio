@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Elegant serif 'W' in off-white, centered perfectly -->
+    <!-- Leg 1 (Thick downline) -->
+    <path
+        android:fillColor="#F7F5F0"
+        android:pathData="M 27,34 h 12 v 2.5 h -3 L 46.5,74.5 h -6 L 32.5,36.5 h -2.5 v -2.5 Z" />
+
+    <!-- Leg 2 (Thin upline) -->
+    <path
+        android:fillColor="#F7F5F0"
+        android:pathData="M 40.5,74.5 L 53,44 h 3 L 41.5,74.5 Z" />
+
+    <!-- Leg 3 (Thick downline) -->
+    <path
+        android:fillColor="#F7F5F0"
+        android:pathData="M 52,44 h 6.5 L 64.5,74.5 h -6 L 52,44 Z" />
+
+    <!-- Leg 4 (Thin upline + top-right serif) -->
+    <path
+        android:fillColor="#F7F5F0"
+        android:pathData="M 58.5,74.5 L 73,36.5 h -2.5 v -2.5 h 11 v 2.5 h -3 L 64.5,74.5 Z" />
+
+    <!-- Gold sweeping flourish stroke underneath the 'W' -->
+    <path
+        android:fillColor="#DFBA73"
+        android:pathData="M 32,79.5 Q 54,83.5 66.5,74.5 Q 54,81.5 32,79.5 Z" />
+
+    <!-- Gold Fountain Pen Nib drawing the stroke -->
+    <path
+        android:fillColor="#DFBA73"
+        android:pathData="M 67,74 L 71.2,64.1 L 80.4,56.3 L 84.7,60.6 L 76.9,69.8 Z" />
+
+    <!-- Ink line cutout on the gold nib (drawn in the deep navy background color) -->
+    <path
+        android:strokeColor="#111622"
+        android:strokeWidth="0.8"
+        android:pathData="M 67,74 L 74.1,66.9" />
+
+    <!-- Breathing hole cutout on the gold nib -->
+    <path
+        android:fillColor="#111622"
+        android:pathData="M 74.1,66.9 m -1.1,0 a 1.1,1.1 0,1,1 2.2,0 a 1.1,1.1 0,1,1 -2.2,0" />
+
+</vector>

@@ -1,0 +1,6 @@
+{
+  "name": "Writer's Studio",
+  "description": "Professional offline screenplay, novel, and play editor with rich formatting, folder organization, built-in prompter, history versions, stats, and export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

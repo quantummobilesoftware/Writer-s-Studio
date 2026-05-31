@@ -1,0 +1,451 @@
+package com.example.data.repository
+
+import android.content.Context
+import com.example.data.entity.*
+import com.example.data.local.WriterDatabase
+import com.example.data.models.EditorBlock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+class WriterRepository(private val db: WriterDatabase) {
+
+    private val projectDao = db.projectDao()
+    private val folderDao = db.folderDao()
+    private val documentDao = db.documentDao()
+    private val historyDao = db.documentHistoryDao()
+    private val prompterDao = db.prompterSettingsDao()
+    private val statsDao = db.statsDao()
+    private val settingsDao = db.settingsDao()
+
+    // --- Projects ---
+    val activeProjectsFlow: Flow<List<WorkspaceProject>> = projectDao.getAllActiveProjectsFlow()
+    val archivedProjectsFlow: Flow<List<WorkspaceProject>> = projectDao.getArchivedProjectsFlow()
+    val trashProjectsFlow: Flow<List<WorkspaceProject>> = projectDao.getTrashProjectsFlow()
+
+    suspend fun getProjectById(id: Long): WorkspaceProject? = withContext(Dispatchers.IO) {
+        projectDao.getProjectById(id)
+    }
+
+    suspend fun createProject(title: String, type: String, colorHex: String, password: String? = null): Long = withContext(Dispatchers.IO) {
+        val proj = WorkspaceProject(
+            title = title,
+            type = type,
+            colorHex = colorHex,
+            passwordHash = password,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        projectDao.insertProject(proj)
+    }
+
+    suspend fun updateProject(project: WorkspaceProject) = withContext(Dispatchers.IO) {
+        projectDao.updateProject(project.copy(updatedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun sendToTrash(projectId: Long) = withContext(Dispatchers.IO) {
+        projectDao.sendToTrash(projectId)
+    }
+
+    suspend fun restoreFromTrash(projectId: Long) = withContext(Dispatchers.IO) {
+        projectDao.restoreFromTrash(projectId)
+    }
+
+    suspend fun permanentDeleteProject(projectId: Long) = withContext(Dispatchers.IO) {
+        projectDao.hardDeleteProject(projectId)
+    }
+
+    // --- Folders ---
+    fun getFoldersForProject(projectId: Long): Flow<List<Folder>> = folderDao.getFoldersForProjectFlow(projectId)
+
+    suspend fun createFolder(projectId: Long, name: String, parentFolderId: Long? = null): Long = withContext(Dispatchers.IO) {
+        val f = Folder(projectId = projectId, name = name, parentFolderId = parentFolderId)
+        folderDao.insertFolder(f)
+    }
+
+    suspend fun deleteFolder(folderId: Long) = withContext(Dispatchers.IO) {
+        folderDao.deleteFolder(folderId)
+    }
+
+    // --- Documents ---
+    fun getRootDocuments(projectId: Long): Flow<List<Document>> = documentDao.getRootDocumentsFlow(projectId)
+    fun getDocumentsByFolder(projectId: Long, folderId: Long): Flow<List<Document>> = documentDao.getDocumentsByFolderFlow(projectId, folderId)
+
+    suspend fun getDocumentById(id: Long): Document? = withContext(Dispatchers.IO) {
+        documentDao.getDocumentById(id)
+    }
+
+    suspend fun createDocument(projectId: Long, folderId: Long?, title: String, content: List<EditorBlock> = emptyList(), isPlainText: Boolean = false): Long = withContext(Dispatchers.IO) {
+        val converters = com.example.data.local.Converters()
+        val d = Document(
+            projectId = projectId,
+            folderId = folderId,
+            title = title,
+            contentBlocksJson = converters.fromBlocksList(content),
+            isPlainText = isPlainText,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        documentDao.insertDocument(d)
+    }
+
+    suspend fun updateDocument(document: Document, statsIncrementWords: Int = 0, statsIncrementChars: Int = 0) = withContext(Dispatchers.IO) {
+        documentDao.updateDocument(document.copy(updatedAt = System.currentTimeMillis()))
+        if (statsIncrementWords > 0 || statsIncrementChars > 0) {
+            logProductivity(statsIncrementWords, statsIncrementChars)
+        }
+    }
+
+    suspend fun deleteDocument(id: Long) = withContext(Dispatchers.IO) {
+        documentDao.deleteDocument(id)
+    }
+
+    // --- Document History ---
+    fun getHistoryForDocument(documentId: Long): Flow<List<DocumentHistory>> = historyDao.getHistoryForDocumentFlow(documentId)
+
+    suspend fun saveHistorySnapshot(documentId: Long, contentBlocksJson: String, description: String) = withContext(Dispatchers.IO) {
+        val h = DocumentHistory(
+            documentId = documentId,
+            contentBlocksJson = contentBlocksJson,
+            snapshotName = description,
+            timestamp = System.currentTimeMillis()
+        )
+        historyDao.insertHistory(h)
+    }
+
+    suspend fun deleteHistory(id: Long) = withContext(Dispatchers.IO) {
+        historyDao.deleteHistory(id)
+    }
+
+    // --- Prompter Settings ---
+    suspend fun getPrompterSettings(documentId: Long): PrompterSettings = withContext(Dispatchers.IO) {
+        prompterDao.getPrompterSettings(documentId) ?: PrompterSettings(documentId = documentId)
+    }
+
+    suspend fun savePrompterSettings(settings: PrompterSettings) = withContext(Dispatchers.IO) {
+        prompterDao.savePrompterSettings(settings)
+    }
+
+    // --- Security Settings ---
+    suspend fun isAppPinSet(): Boolean = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("app_pin") != null
+    }
+
+    suspend fun getAppPin(): String? = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("app_pin")
+    }
+
+    suspend fun setAppPin(pin: String?) = withContext(Dispatchers.IO) {
+        if (pin.isNullOrEmpty()) {
+            settingsDao.saveSetting(AppSetting("pin_enabled", "false"))
+            settingsDao.saveSetting(AppSetting("app_pin", ""))
+        } else {
+            settingsDao.saveSetting(AppSetting("pin_enabled", "true"))
+            settingsDao.saveSetting(AppSetting("app_pin", pin))
+        }
+    }
+
+    suspend fun isPinEnabled(): Boolean = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("pin_enabled") == "true"
+    }
+
+    suspend fun getAppLanguage(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("app_language") ?: "ru"
+    }
+
+    suspend fun saveAppLanguage(lang: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("app_language", lang))
+    }
+
+    suspend fun getThemeMode(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("theme_mode") ?: "DARK"
+    }
+
+    suspend fun saveThemeMode(theme: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("theme_mode", theme))
+    }
+
+    suspend fun getColorPalette(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("color_palette") ?: "CORAL"
+    }
+
+    suspend fun saveColorPalette(palette: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("color_palette", palette))
+    }
+
+    suspend fun getInterfaceStyle(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("interface_style") ?: "PIXEL"
+    }
+
+    suspend fun saveInterfaceStyle(style: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("interface_style", style))
+    }
+
+    // --- Productivity Statistics ---
+    val statsFlow: Flow<List<ProductivityStat>> = statsDao.getAllStatsFlow()
+
+    private suspend fun logProductivity(words: Int, chars: Int) {
+        val dateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val existing = statsDao.getStatForDate(dateString)
+        if (existing != null) {
+            statsDao.insertStat(
+                existing.copy(
+                    wordsCount = existing.wordsCount + words,
+                    charsCount = existing.charsCount + chars,
+                    minutesSpent = existing.minutesSpent + 1 // Add a default productivity minute
+                )
+            )
+        } else {
+            statsDao.insertStat(
+                ProductivityStat(
+                    dateString = dateString,
+                    wordsCount = words,
+                    charsCount = chars,
+                    minutesSpent = 1
+                )
+            )
+        }
+    }
+
+    // --- Backup & Restore ---
+    suspend fun exportBackupJson(context: Context): String = withContext(Dispatchers.IO) {
+        val backupObj = JSONObject()
+        backupObj.put("backup_version", 1)
+        backupObj.put("timestamp", System.currentTimeMillis())
+
+        val projectsArr = JSONArray()
+        for (item in projectDao.getAllProjectsDirect()) {
+            projectsArr.put(JSONObject().apply {
+                put("id", item.id)
+                put("title", item.title)
+                put("type", item.type)
+                put("colorHex", item.colorHex)
+                put("isFavorite", item.isFavorite)
+                put("isArchived", item.isArchived)
+                put("isInTrash", item.isInTrash)
+                put("passwordHash", item.passwordHash ?: "")
+                put("createdAt", item.createdAt)
+                put("updatedAt", item.updatedAt)
+            })
+        }
+        backupObj.put("projects", projectsArr)
+
+        val foldersArr = JSONArray()
+        for (item in folderDao.getAllFoldersDirect()) {
+            foldersArr.put(JSONObject().apply {
+                put("id", item.id)
+                put("projectId", item.projectId)
+                put("name", item.name)
+                put("parentFolderId", item.parentFolderId ?: -1L)
+                put("createdAt", item.createdAt)
+            })
+        }
+        backupObj.put("folders", foldersArr)
+
+        val docsArr = JSONArray()
+        for (item in documentDao.getAllDocumentsDirect()) {
+            docsArr.put(JSONObject().apply {
+                put("id", item.id)
+                put("projectId", item.projectId)
+                put("folderId", item.folderId ?: -1L)
+                put("title", item.title)
+                put("contentBlocksJson", item.contentBlocksJson)
+                put("sortOrder", item.sortOrder)
+                put("passwordHash", item.passwordHash ?: "")
+                put("createdAt", item.createdAt)
+                put("updatedAt", item.updatedAt)
+            })
+        }
+        backupObj.put("documents", docsArr)
+
+        val historyArr = JSONArray()
+        for (item in historyDao.getAllHistoryDirect()) {
+            historyArr.put(JSONObject().apply {
+                put("id", item.id)
+                put("documentId", item.documentId)
+                put("contentBlocksJson", item.contentBlocksJson)
+                put("snapshotName", item.snapshotName)
+                put("timestamp", item.timestamp)
+            })
+        }
+        backupObj.put("history", historyArr)
+
+        val prompterArr = JSONArray()
+        for (item in prompterDao.getAllPrompterSettingsDirect()) {
+            prompterArr.put(JSONObject().apply {
+                put("documentId", item.documentId)
+                put("scrollSpeed", item.scrollSpeed.toDouble())
+                put("fontSize", item.fontSize.toDouble())
+                put("fontFamily", item.fontFamily)
+                put("textColorHex", item.textColorHex)
+                put("bgColorHex", item.bgColorHex)
+                put("mirrorHorizontal", item.mirrorHorizontal)
+                put("mirrorVertical", item.mirrorVertical)
+            })
+        }
+        backupObj.put("prompter_settings", prompterArr)
+
+        val statsArr = JSONArray()
+        for (item in statsDao.getAllStatsDirect()) {
+            statsArr.put(JSONObject().apply {
+                put("dateString", item.dateString)
+                put("wordsCount", item.wordsCount)
+                put("charsCount", item.charsCount)
+                put("minutesSpent", item.minutesSpent)
+            })
+        }
+        backupObj.put("stats", statsArr)
+
+        val settingsArr = JSONArray()
+        for (item in settingsDao.getAllSettingsDirect()) {
+            settingsArr.put(JSONObject().apply {
+                put("configKey", item.configKey)
+                put("configValue", item.configValue)
+            })
+        }
+        backupObj.put("settings", settingsArr)
+
+        backupObj.toString()
+    }
+
+    suspend fun importBackupJson(backupData: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val root = JSONObject(backupData)
+            val version = root.optInt("backup_version", 0)
+            if (version == 0) return@withContext false
+
+            // Restore Projects
+            if (root.has("projects")) {
+                val arr = root.getJSONArray("projects")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val proj = WorkspaceProject(
+                        id = obj.getLong("id"),
+                        title = obj.getString("title"),
+                        type = obj.optString("type", "BOOK"),
+                        colorHex = obj.optString("colorHex", "#6200EE"),
+                        isFavorite = obj.optBoolean("isFavorite", false),
+                        isArchived = obj.optBoolean("isArchived", false),
+                        isInTrash = obj.optBoolean("isInTrash", false),
+                        passwordHash = obj.optString("passwordHash").ifEmpty { null },
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                    projectDao.insertProject(proj)
+                }
+            }
+
+            // Restore Folders
+            if (root.has("folders")) {
+                val arr = root.getJSONArray("folders")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val parentIdRaw = obj.optLong("parentFolderId", -1L)
+                    val f = Folder(
+                        id = obj.getLong("id"),
+                        projectId = obj.getLong("projectId"),
+                        name = obj.getString("name"),
+                        parentFolderId = if (parentIdRaw == -1L) null else parentIdRaw,
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                    folderDao.insertFolder(f)
+                }
+            }
+
+            // Restore Documents
+            if (root.has("documents")) {
+                val arr = root.getJSONArray("documents")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val folderIdRaw = obj.optLong("folderId", -1L)
+                    val d = Document(
+                        id = obj.getLong("id"),
+                        projectId = obj.getLong("projectId"),
+                        folderId = if (folderIdRaw == -1L) null else folderIdRaw,
+                        title = obj.getString("title"),
+                        contentBlocksJson = obj.getString("contentBlocksJson"),
+                        sortOrder = obj.optInt("sortOrder", 0),
+                        passwordHash = obj.optString("passwordHash").ifEmpty { null },
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                    documentDao.insertDocument(d)
+                }
+            }
+
+            // Restore History
+            if (root.has("history")) {
+                val arr = root.getJSONArray("history")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val h = DocumentHistory(
+                        id = obj.getLong("id"),
+                        documentId = obj.getLong("documentId"),
+                        contentBlocksJson = obj.getString("contentBlocksJson"),
+                        snapshotName = obj.getString("snapshotName"),
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                    )
+                    historyDao.insertHistory(h)
+                }
+            }
+
+            // Restore Prompter Settings
+            if (root.has("prompter_settings")) {
+                val arr = root.getJSONArray("prompter_settings")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val s = PrompterSettings(
+                        documentId = obj.getLong("documentId"),
+                        scrollSpeed = obj.optDouble("scrollSpeed", 10.0).toFloat(),
+                        fontSize = obj.optDouble("fontSize", 24.0).toFloat(),
+                        fontFamily = obj.optString("fontFamily", "SANS_SERIF"),
+                        textColorHex = obj.optString("textColorHex", "#FFFFFF"),
+                        bgColorHex = obj.optString("bgColorHex", "#000000"),
+                        mirrorHorizontal = obj.optBoolean("mirrorHorizontal", false),
+                        mirrorVertical = obj.optBoolean("mirrorVertical", false)
+                    )
+                    prompterDao.savePrompterSettings(s)
+                }
+            }
+
+            // Restore Stats
+            if (root.has("stats")) {
+                val arr = root.getJSONArray("stats")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val s = ProductivityStat(
+                        dateString = obj.getString("dateString"),
+                        wordsCount = obj.optInt("wordsCount", 0),
+                        charsCount = obj.optInt("charsCount", 0),
+                        minutesSpent = obj.optInt("minutesSpent", 0)
+                    )
+                    statsDao.insertStat(s)
+                }
+            }
+
+            // Restore Settings
+            if (root.has("settings")) {
+                val arr = root.getJSONArray("settings")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val s = AppSetting(
+                        configKey = obj.getString("configKey"),
+                        configValue = obj.getString("configValue")
+                    )
+                    settingsDao.saveSetting(s)
+                }
+            }
+
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+}
