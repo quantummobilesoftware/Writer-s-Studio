@@ -77,7 +77,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _authorBio = MutableStateFlow("Вдохновение рождается во время работы.")
     val authorBio: StateFlow<String> = _authorBio.asStateFlow()
 
-    private val _authorEmail = MutableStateFlow("bitixtsup@gmail.com")
+    private val _authorEmail = MutableStateFlow("")
     val authorEmail: StateFlow<String> = _authorEmail.asStateFlow()
 
     private val _authorAvatar = MutableStateFlow("")

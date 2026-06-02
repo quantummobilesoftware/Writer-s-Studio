@@ -207,7 +207,7 @@ class WriterRepository(private val db: WriterDatabase) {
     }
 
     suspend fun getAuthorEmail(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("author_email") ?: "bitixtsup@gmail.com"
+        settingsDao.getSetting("author_email") ?: ""
     }
 
     suspend fun saveAuthorEmail(email: String) = withContext(Dispatchers.IO) {
