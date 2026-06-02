@@ -38,7 +38,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _projectSearchQuery = MutableStateFlow("")
     val projectSearchQuery: StateFlow<String> = _projectSearchQuery.asStateFlow()
 
-    private val _projectSortBy = MutableStateFlow("UPDATED") // NAME, CREATED, UPDATED
+    private val _projectSortBy = MutableStateFlow("MANUAL") // NAME, CREATED, UPDATED, MANUAL
     val projectSortBy: StateFlow<String> = _projectSortBy.asStateFlow()
 
     fun setProjectSearchQuery(query: String) {
@@ -65,11 +65,26 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _themeMode = MutableStateFlow("DARK")
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
-    private val _colorPalette = MutableStateFlow("CORAL")
+    private val _colorPalette = MutableStateFlow("GREY")
     val colorPalette: StateFlow<String> = _colorPalette.asStateFlow()
 
     private val _interfaceStyle = MutableStateFlow("PIXEL")
     val interfaceStyle: StateFlow<String> = _interfaceStyle.asStateFlow()
+
+    private val _authorName = MutableStateFlow("Писатель")
+    val authorName: StateFlow<String> = _authorName.asStateFlow()
+
+    private val _authorBio = MutableStateFlow("Вдохновение рождается во время работы.")
+    val authorBio: StateFlow<String> = _authorBio.asStateFlow()
+
+    private val _authorEmail = MutableStateFlow("bitixtsup@gmail.com")
+    val authorEmail: StateFlow<String> = _authorEmail.asStateFlow()
+
+    private val _authorAvatar = MutableStateFlow("")
+    val authorAvatar: StateFlow<String> = _authorAvatar.asStateFlow()
+
+    private val _cloudSyncEnabled = MutableStateFlow(false)
+    val cloudSyncEnabled: StateFlow<Boolean> = _cloudSyncEnabled.asStateFlow()
 
     // Loaded folders & documents list
     val currentFolders: StateFlow<List<Folder>> = _selectedProject
@@ -142,6 +157,36 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             _themeMode.value = repository.getThemeMode()
             _colorPalette.value = repository.getColorPalette()
             _interfaceStyle.value = repository.getInterfaceStyle()
+            _authorName.value = repository.getAuthorName()
+            _authorBio.value = repository.getAuthorBio()
+            _authorEmail.value = repository.getAuthorEmail()
+            _authorAvatar.value = repository.getAuthorAvatar()
+            _cloudSyncEnabled.value = repository.getCloudSyncEnabled()
+        }
+    }
+
+    fun setAuthorAvatar(path: String) {
+        viewModelScope.launch {
+            repository.saveAuthorAvatar(path)
+            _authorAvatar.value = path
+        }
+    }
+
+    fun setCloudSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.saveCloudSyncEnabled(enabled)
+            _cloudSyncEnabled.value = enabled
+        }
+    }
+
+    fun setAuthorProfile(name: String, bio: String, email: String) {
+        viewModelScope.launch {
+            repository.saveAuthorName(name)
+            repository.saveAuthorBio(bio)
+            repository.saveAuthorEmail(email)
+            _authorName.value = name
+            _authorBio.value = bio
+            _authorEmail.value = email
         }
     }
 
@@ -259,6 +304,42 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     fun permanentDeleteProject(project: WorkspaceProject) {
         viewModelScope.launch {
             repository.permanentDeleteProject(project.id)
+        }
+    }
+
+    fun renameProject(project: WorkspaceProject, newTitle: String) {
+        viewModelScope.launch {
+            if (newTitle.isNotBlank()) {
+                repository.updateProject(project.copy(title = newTitle))
+            }
+        }
+    }
+
+    fun moveProject(project: WorkspaceProject, up: Boolean, currentSubTab: String) {
+        viewModelScope.launch {
+            val rawList = when (currentSubTab) {
+                "ARCHIVE" -> archivedProjects.value
+                "TRASH" -> trashProjects.value
+                "FAVORITES" -> activeProjects.value.filter { it.isFavorite }
+                else -> activeProjects.value
+            }
+            val currentList = rawList.toMutableList()
+            val index = currentList.indexOfFirst { it.id == project.id }
+            if (index == -1) return@launch
+            
+            val targetIndex = if (up) index - 1 else index + 1
+            if (targetIndex in 0 until currentList.size) {
+                for (i in currentList.indices) {
+                    currentList[i] = currentList[i].copy(sortOrder = i)
+                }
+                val temp = currentList[index]
+                currentList[index] = currentList[targetIndex].copy(sortOrder = index)
+                currentList[targetIndex] = temp.copy(sortOrder = targetIndex)
+                
+                for (p in currentList) {
+                    repository.updateProject(p)
+                }
+            }
         }
     }
 

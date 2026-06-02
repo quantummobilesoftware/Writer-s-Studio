@@ -34,13 +34,16 @@ class WriterRepository(private val db: WriterDatabase) {
     }
 
     suspend fun createProject(title: String, type: String, colorHex: String, password: String? = null): Long = withContext(Dispatchers.IO) {
+        val allProjs = projectDao.getAllProjectsDirect()
+        val maxSort = allProjs.maxOfOrNull { it.sortOrder } ?: 0
         val proj = WorkspaceProject(
             title = title,
             type = type,
             colorHex = colorHex,
             passwordHash = password,
             createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            sortOrder = maxSort + 1
         )
         projectDao.insertProject(proj)
     }
@@ -172,7 +175,7 @@ class WriterRepository(private val db: WriterDatabase) {
     }
 
     suspend fun getColorPalette(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("color_palette") ?: "CORAL"
+        settingsDao.getSetting("color_palette") ?: "GREY"
     }
 
     suspend fun saveColorPalette(palette: String) = withContext(Dispatchers.IO) {
@@ -185,6 +188,46 @@ class WriterRepository(private val db: WriterDatabase) {
 
     suspend fun saveInterfaceStyle(style: String) = withContext(Dispatchers.IO) {
         settingsDao.saveSetting(AppSetting("interface_style", style))
+    }
+
+    suspend fun getAuthorName(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("author_name") ?: "Писатель"
+    }
+
+    suspend fun saveAuthorName(name: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("author_name", name))
+    }
+
+    suspend fun getAuthorBio(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("author_bio") ?: "Вдохновение рождается во время работы."
+    }
+
+    suspend fun saveAuthorBio(bio: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("author_bio", bio))
+    }
+
+    suspend fun getAuthorEmail(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("author_email") ?: "bitixtsup@gmail.com"
+    }
+
+    suspend fun saveAuthorEmail(email: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("author_email", email))
+    }
+
+    suspend fun getAuthorAvatar(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("author_avatar") ?: ""
+    }
+
+    suspend fun saveAuthorAvatar(path: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("author_avatar", path))
+    }
+
+    suspend fun getCloudSyncEnabled(): Boolean = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("cloud_sync_enabled") == "true"
+    }
+
+    suspend fun saveCloudSyncEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("cloud_sync_enabled", enabled.toString()))
     }
 
     // --- Productivity Statistics ---
@@ -232,6 +275,7 @@ class WriterRepository(private val db: WriterDatabase) {
                 put("passwordHash", item.passwordHash ?: "")
                 put("createdAt", item.createdAt)
                 put("updatedAt", item.updatedAt)
+                put("sortOrder", item.sortOrder)
             })
         }
         backupObj.put("projects", projectsArr)
@@ -335,7 +379,8 @@ class WriterRepository(private val db: WriterDatabase) {
                         isInTrash = obj.optBoolean("isInTrash", false),
                         passwordHash = obj.optString("passwordHash").ifEmpty { null },
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                        sortOrder = obj.optInt("sortOrder", 0)
                     )
                     projectDao.insertProject(proj)
                 }
