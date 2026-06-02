@@ -415,6 +415,15 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         }
     }
 
+    fun deleteDocument(id: Long) {
+        viewModelScope.launch {
+            repository.deleteDocument(id)
+            if (_activeDocument.value?.id == id) {
+                selectDocument(null)
+            }
+        }
+    }
+
     fun updateEditorBlocks(newBlocks: List<EditorBlock>, updateHistory: Boolean = true) {
         if (updateHistory) {
             // Keep maximum 50 levels of Undo/Redo to limit memory footprint

@@ -1815,6 +1815,7 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
 
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showCreateDocumentDialog by remember { mutableStateOf(false) }
+    var documentToDelete by remember { mutableStateOf<Document?>(null) }
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
 
     val currentLevelFolders = remember(folders, activeFolder) {
@@ -2267,21 +2268,44 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                                         }
                                     }
                                     
-                                    Surface(
-                                        shape = androidx.compose.foundation.shape.CircleShape,
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                        modifier = Modifier.size(32.dp)
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier.clickable { viewModel.selectDocument(doc) }
+                                        Surface(
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(32.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Edit,
-                                                contentDescription = l("edit", appLanguage),
-                                                tint = projectColor,
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.clickable { viewModel.selectDocument(doc) }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = l("edit", appLanguage),
+                                                    tint = projectColor,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.clickable { documentToDelete = doc }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = l("delete", appLanguage),
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2387,6 +2411,47 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDocumentDialog = false }) { Text(l("cancel", appLanguage)) }
+            }
+        )
+    }
+
+    // DELETE DOCUMENT DIALOG
+    if (documentToDelete != null) {
+        val doc = documentToDelete!!
+        AlertDialog(
+            onDismissRequest = { documentToDelete = null },
+            title = {
+                Text(
+                    text = if (appLanguage == "ru") "Удалить документ?" else "Delete Document?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (appLanguage == "ru") {
+                        "Вы действительно хотите удалить документ \"${doc.title}\"? Это действие нельзя отменить."
+                    } else {
+                        "Are you sure you want to delete the document \"${doc.title}\"? This action cannot be undone."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteDocument(doc.id)
+                        documentToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(if (appLanguage == "ru") "Удалить" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { documentToDelete = null }) {
+                    Text(l("cancel", appLanguage))
+                }
             }
         )
     }
