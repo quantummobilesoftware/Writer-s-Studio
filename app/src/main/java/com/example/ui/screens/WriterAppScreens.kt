@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -1707,20 +1708,40 @@ fun ProjectItemRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = project.title,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (!project.passwordHash.isNullOrEmpty()) {
-                        Icon(Icons.Filled.Lock, l("protected_project", appLanguage), modifier = Modifier.size(14.dp), Color.Gray)
+                        Icon(
+                            imageVector = Icons.Filled.Lock,
+                            contentDescription = l("protected_project", appLanguage),
+                            modifier = Modifier.size(14.dp),
+                            tint = Color.Gray
+                        )
                     }
+                }
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .background(projectColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
@@ -1730,15 +1751,18 @@ fun ProjectItemRow(
                             text = typeLabel.uppercase(),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            color = projectColor
+                            color = projectColor,
+                            maxLines = 1
                         )
                     }
+                    Text(
+                        text = "${l("modified", appLanguage)}: ${SimpleDateFormat("dd.MM.yy HH:mm", Locale.getDefault()).format(Date(project.updatedAt))}",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text(
-                    text = "${l("modified", appLanguage)}: ${SimpleDateFormat("dd.MM.yy HH:mm", Locale.getDefault()).format(Date(project.updatedAt))}",
-                    fontSize = 11.sp,
-                    color = Color.Gray
-                )
             }
 
             if (isTrashMode) {

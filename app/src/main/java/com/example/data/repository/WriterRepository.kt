@@ -159,7 +159,7 @@ class WriterRepository(private val db: WriterDatabase) {
     }
 
     suspend fun getAppLanguage(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("app_language") ?: "ru"
+        settingsDao.getSetting("app_language") ?: "system"
     }
 
     suspend fun saveAppLanguage(lang: String) = withContext(Dispatchers.IO) {

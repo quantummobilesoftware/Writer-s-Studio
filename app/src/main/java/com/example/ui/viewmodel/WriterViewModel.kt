@@ -59,7 +59,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _activeDocument = MutableStateFlow<Document?>(null)
     val activeDocument: StateFlow<Document?> = _activeDocument.asStateFlow()
 
-    private val _appLanguage = MutableStateFlow("ru")
+    private val _appLanguage = MutableStateFlow("system")
     val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
 
     private val _themeMode = MutableStateFlow("DARK")
