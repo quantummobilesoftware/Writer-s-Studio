@@ -41,12 +41,19 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _projectSortBy = MutableStateFlow("MANUAL") // NAME, CREATED, UPDATED, MANUAL
     val projectSortBy: StateFlow<String> = _projectSortBy.asStateFlow()
 
+    private val _workspaceSortBy = MutableStateFlow("MANUAL") // MANUAL, NAME_ASC, NAME_DESC, DATE_CREATED_DESC, DATE_CREATED_ASC, DATE_MODIFIED_DESC
+    val workspaceSortBy: StateFlow<String> = _workspaceSortBy.asStateFlow()
+
     fun setProjectSearchQuery(query: String) {
         _projectSearchQuery.value = query
     }
 
     fun setProjectSortBy(sortBy: String) {
         _projectSortBy.value = sortBy
+    }
+
+    fun setWorkspaceSortBy(sortBy: String) {
+        _workspaceSortBy.value = sortBy
     }
 
     // --- Navigation Selection States ---
@@ -361,6 +368,80 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             repository.deleteFolder(folderId)
             if (_selectedFolder.value?.id == folderId) {
                 _selectedFolder.value = null
+            }
+        }
+    }
+
+    fun moveFolder(folder: Folder, up: Boolean) {
+        viewModelScope.launch {
+            val parentId = folder.parentFolderId
+            val foldersInLevel = currentFolders.value
+                .filter { it.parentFolderId == parentId }
+                .sortedBy { it.sortOrder }
+                .toMutableList()
+            
+            val index = foldersInLevel.indexOfFirst { it.id == folder.id }
+            if (index == -1) return@launch
+            
+            val targetIndex = if (up) index - 1 else index + 1
+            if (targetIndex in 0 until foldersInLevel.size) {
+                for (i in foldersInLevel.indices) {
+                    foldersInLevel[i] = foldersInLevel[i].copy(sortOrder = i)
+                }
+                val temp = foldersInLevel[index]
+                foldersInLevel[index] = foldersInLevel[targetIndex].copy(sortOrder = index)
+                foldersInLevel[targetIndex] = temp.copy(sortOrder = targetIndex)
+                
+                for (f in foldersInLevel) {
+                    repository.updateFolder(f)
+                }
+            }
+        }
+    }
+
+    fun moveDocument(document: Document, up: Boolean) {
+        viewModelScope.launch {
+            val list = if (document.folderId == null) {
+                currentRootDocuments.value
+            } else {
+                currentFolderDocuments.value
+            }.sortedBy { it.sortOrder }.toMutableList()
+            
+            val index = list.indexOfFirst { it.id == document.id }
+            if (index == -1) return@launch
+            
+            val targetIndex = if (up) index - 1 else index + 1
+            if (targetIndex in 0 until list.size) {
+                for (i in list.indices) {
+                    list[i] = list[i].copy(sortOrder = i)
+                }
+                val temp = list[index]
+                list[index] = list[targetIndex].copy(sortOrder = index)
+                list[targetIndex] = temp.copy(sortOrder = targetIndex)
+                
+                for (d in list) {
+                    repository.updateDocument(d)
+                }
+            }
+        }
+    }
+
+    fun renameFolder(folder: Folder, newName: String) {
+        viewModelScope.launch {
+            if (newName.isNotBlank()) {
+                repository.updateFolder(folder.copy(name = newName))
+            }
+        }
+    }
+
+    fun renameDocumentInWorkspace(document: Document, newTitle: String) {
+        viewModelScope.launch {
+            if (newTitle.isNotBlank()) {
+                val updated = document.copy(title = newTitle, updatedAt = System.currentTimeMillis())
+                repository.updateDocument(updated)
+                if (_activeDocument.value?.id == document.id) {
+                    _activeDocument.value = updated
+                }
             }
         }
     }

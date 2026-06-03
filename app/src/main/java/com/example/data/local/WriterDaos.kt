@@ -39,7 +39,7 @@ interface ProjectDao {
 
 @Dao
 interface FolderDao {
-    @Query("SELECT * FROM folders WHERE projectId = :projectId ORDER BY name ASC")
+    @Query("SELECT * FROM folders WHERE projectId = :projectId ORDER BY sortOrder ASC, createdAt ASC")
     fun getFoldersForProjectFlow(projectId: Long): Flow<List<Folder>>
 
     @Query("SELECT * FROM folders WHERE id = :folderId LIMIT 1")
@@ -47,6 +47,9 @@ interface FolderDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFolder(folder: Folder): Long
+
+    @Update
+    suspend fun updateFolder(folder: Folder)
 
     @Query("DELETE FROM folders WHERE id = :folderId")
     suspend fun deleteFolder(folderId: Long)

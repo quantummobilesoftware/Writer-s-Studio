@@ -1908,11 +1908,41 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
     var folderToDelete by remember { mutableStateOf<Folder?>(null) }
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
 
-    val currentLevelFolders = remember(folders, activeFolder) {
+    val workspaceSortBy by viewModel.workspaceSortBy.collectAsStateWithLifecycle()
+
+    var showRenameFolderDialog by remember { mutableStateOf(false) }
+    var folderToRename by remember { mutableStateOf<Folder?>(null) }
+    var showRenameDocumentDialog by remember { mutableStateOf(false) }
+    var documentToRename by remember { mutableStateOf<Document?>(null) }
+    var renameInputText by remember { mutableStateOf("") }
+
+    val rawLevelFolders = remember(folders, activeFolder) {
         folders.filter { it.parentFolderId == activeFolder?.id }
     }
 
-    val currentLevelDocuments = if (activeFolder == null) rootDocs else folderDocs
+    val rawLevelDocuments = if (activeFolder == null) rootDocs else folderDocs
+
+    val currentLevelFolders = remember(rawLevelFolders, workspaceSortBy) {
+        when (workspaceSortBy) {
+            "NAME_ASC" -> rawLevelFolders.sortedBy { it.name.lowercase() }
+            "NAME_DESC" -> rawLevelFolders.sortedByDescending { it.name.lowercase() }
+            "DATE_CREATED_DESC" -> rawLevelFolders.sortedByDescending { it.createdAt }
+            "DATE_CREATED_ASC" -> rawLevelFolders.sortedBy { it.createdAt }
+            "DATE_MODIFIED_DESC" -> rawLevelFolders.sortedByDescending { it.createdAt }
+            else -> rawLevelFolders.sortedBy { it.sortOrder }
+        }
+    }
+
+    val currentLevelDocuments = remember(rawLevelDocuments, workspaceSortBy) {
+        when (workspaceSortBy) {
+            "NAME_ASC" -> rawLevelDocuments.sortedBy { it.title.lowercase() }
+            "NAME_DESC" -> rawLevelDocuments.sortedByDescending { it.title.lowercase() }
+            "DATE_CREATED_DESC" -> rawLevelDocuments.sortedByDescending { it.createdAt }
+            "DATE_CREATED_ASC" -> rawLevelDocuments.sortedBy { it.createdAt }
+            "DATE_MODIFIED_DESC" -> rawLevelDocuments.sortedByDescending { it.updatedAt }
+            else -> rawLevelDocuments.sortedBy { it.sortOrder }
+        }
+    }
 
     val projectColor = MaterialTheme.colorScheme.primary
 
@@ -2067,6 +2097,49 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // Sort selection row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sort,
+                    contentDescription = "Sort Icon",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (appLanguage == "ru") "Сортировка: " else "Sort by: ",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val sModes = listOf(
+                        "MANUAL" to (if (appLanguage == "ru") "Порядок" else "Manual"),
+                        "NAME_ASC" to (if (appLanguage == "ru") "А-Я" else "A-Z"),
+                        "NAME_DESC" to (if (appLanguage == "ru") "Я-А" else "Z-A"),
+                        "DATE_CREATED_DESC" to (if (appLanguage == "ru") "Новые" else "Newest"),
+                        "DATE_CREATED_ASC" to (if (appLanguage == "ru") "Старые" else "Oldest"),
+                        "DATE_MODIFIED_DESC" to (if (appLanguage == "ru") "Недавние" else "Recent")
+                    )
+                    items(sModes) { (sortId, label) ->
+                        val isSelected = workspaceSortBy == sortId
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.setWorkspaceSortBy(sortId) },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
                     }
                 }
             }
@@ -2245,19 +2318,63 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                                     )
                                 }
                                 
-                                IconButton(
-                                    onClick = { folderToDelete = fold },
-                                    modifier = Modifier
-                                        .clip(androidx.compose.foundation.shape.CircleShape)
-                                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f))
-                                        .size(36.dp)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = l("delete", appLanguage),
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                    if (workspaceSortBy == "MANUAL") {
+                                        IconButton(
+                                            onClick = { viewModel.moveFolder(fold, up = true) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowUpward,
+                                                contentDescription = "Move Up",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.moveFolder(fold, up = false) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDownward,
+                                                contentDescription = "Move Down",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            folderToRename = fold
+                                            renameInputText = fold.name
+                                            showRenameFolderDialog = true
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Rename",
+                                            tint = projectColor,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { folderToDelete = fold },
+                                        modifier = Modifier
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f))
+                                            .size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = l("delete", appLanguage),
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2359,43 +2476,61 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                                     }
                                     
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Surface(
-                                            shape = androidx.compose.foundation.shape.CircleShape,
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.clickable { viewModel.selectDocument(doc) }
+                                        if (workspaceSortBy == "MANUAL") {
+                                            IconButton(
+                                                onClick = { viewModel.moveDocument(doc, up = true) },
+                                                modifier = Modifier.size(28.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = l("edit", appLanguage),
-                                                    tint = projectColor,
-                                                    modifier = Modifier.size(16.dp)
+                                                    imageVector = Icons.Default.ArrowUpward,
+                                                    contentDescription = "Move Up",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.moveDocument(doc, up = false) },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ArrowDownward,
+                                                    contentDescription = "Move Down",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(14.dp)
                                                 )
                                             }
                                         }
-
-                                        Surface(
-                                            shape = androidx.compose.foundation.shape.CircleShape,
-                                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                                            modifier = Modifier.size(32.dp)
+                                        IconButton(
+                                            onClick = {
+                                                documentToRename = doc
+                                                renameInputText = doc.title
+                                                showRenameDocumentDialog = true
+                                            },
+                                            modifier = Modifier.size(28.dp)
                                         ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.clickable { documentToDelete = doc }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Delete,
-                                                    contentDescription = l("delete", appLanguage),
-                                                    tint = MaterialTheme.colorScheme.error,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Rename",
+                                                tint = projectColor,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { documentToDelete = doc },
+                                            modifier = Modifier
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f))
+                                                .size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = l("delete", appLanguage),
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(14.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -2587,6 +2722,62 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
             }
         )
     }
+
+    // RENAME FOLDER DIALOG
+    if (showRenameFolderDialog && folderToRename != null) {
+        var folderName by remember { mutableStateOf(renameInputText) }
+        AlertDialog(
+            onDismissRequest = { showRenameFolderDialog = false },
+            title = { Text(if (appLanguage == "ru") "Переименовать папку" else "Rename Folder") },
+            text = {
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = { folderName = it },
+                    label = { Text(l("folder_name", appLanguage)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (folderName.isNotEmpty()) {
+                        viewModel.renameFolder(folderToRename!!, folderName)
+                        showRenameFolderDialog = false
+                    }
+                }) { Text(if (appLanguage == "ru") "Сохранить" else "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameFolderDialog = false }) { Text(l("cancel", appLanguage)) }
+            }
+        )
+    }
+
+    // RENAME DOCUMENT DIALOG
+    if (showRenameDocumentDialog && documentToRename != null) {
+        var docName by remember { mutableStateOf(renameInputText) }
+        AlertDialog(
+            onDismissRequest = { showRenameDocumentDialog = false },
+            title = { Text(if (appLanguage == "ru") "Переименовать файл" else "Rename Document") },
+            text = {
+                OutlinedTextField(
+                    value = docName,
+                    onValueChange = { docName = it },
+                    label = { Text(l("doc_name", appLanguage)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (docName.isNotEmpty()) {
+                        viewModel.renameDocumentInWorkspace(documentToRename!!, docName)
+                        showRenameDocumentDialog = false
+                    }
+                }) { Text(if (appLanguage == "ru") "Сохранить" else "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDocumentDialog = false }) { Text(l("cancel", appLanguage)) }
+            }
+        )
+    }
 }
 
 // --- DOCUMENT RICH TEXT EDITOR SCREEN ---
@@ -2662,6 +2853,8 @@ fun DocumentEditorScreen(
                                     editingTitle = it
                                     viewModel.updateDocumentTitle(it)
                                 },
+                                singleLine = true,
+                                maxLines = 1,
                                 textStyle = TextStyle(
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
@@ -3239,6 +3432,8 @@ fun DocumentEditorScreen(
                                 editingTitle = it
                                 viewModel.updateDocumentTitle(it)
                             },
+                            singleLine = true,
+                            maxLines = 1,
                             textStyle = TextStyle(
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,

@@ -76,6 +76,10 @@ class WriterRepository(private val db: WriterDatabase) {
         folderDao.deleteFolder(folderId)
     }
 
+    suspend fun updateFolder(folder: Folder) = withContext(Dispatchers.IO) {
+        folderDao.updateFolder(folder)
+    }
+
     // --- Documents ---
     fun getRootDocuments(projectId: Long): Flow<List<Document>> = documentDao.getRootDocumentsFlow(projectId)
     fun getDocumentsByFolder(projectId: Long, folderId: Long): Flow<List<Document>> = documentDao.getDocumentsByFolderFlow(projectId, folderId)
@@ -288,6 +292,7 @@ class WriterRepository(private val db: WriterDatabase) {
                 put("name", item.name)
                 put("parentFolderId", item.parentFolderId ?: -1L)
                 put("createdAt", item.createdAt)
+                put("sortOrder", item.sortOrder)
             })
         }
         backupObj.put("folders", foldersArr)
@@ -398,7 +403,8 @@ class WriterRepository(private val db: WriterDatabase) {
                         projectId = obj.getLong("projectId"),
                         name = obj.getString("name"),
                         parentFolderId = if (parentIdRaw == -1L) null else parentIdRaw,
-                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        sortOrder = obj.optInt("sortOrder", 0)
                     )
                     folderDao.insertFolder(f)
                 }

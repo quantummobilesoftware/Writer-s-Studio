@@ -24,7 +24,8 @@ data class Folder(
     val projectId: Long,
     val name: String,
     val parentFolderId: Long? = null, // Supports subfolders
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val sortOrder: Int = 0
 )
 
 @Entity(tableName = "documents")
