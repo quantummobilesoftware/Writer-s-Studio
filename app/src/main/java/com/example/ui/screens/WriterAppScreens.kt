@@ -405,8 +405,6 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
     val authorEmail by viewModel.authorEmail.collectAsStateWithLifecycle()
     val authorAvatar by viewModel.authorAvatar.collectAsStateWithLifecycle()
     val cloudSyncEnabled by viewModel.cloudSyncEnabled.collectAsStateWithLifecycle()
-    val proxyBackendUrl by viewModel.proxyBackendUrl.collectAsStateWithLifecycle()
-    val googleEmail by viewModel.googleAccountEmail.collectAsStateWithLifecycle()
     val statsList by viewModel.statistics.collectAsStateWithLifecycle()
 
     var projectToRename by remember { mutableStateOf<WorkspaceProject?>(null) }
@@ -1102,46 +1100,8 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
         var editEmail by remember { mutableStateOf(authorEmail) }
         var editCloudSync by remember { mutableStateOf(cloudSyncEnabled) }
         var editAvatarPath by remember { mutableStateOf(authorAvatar) }
-        var editProxyBackendUrl by remember { mutableStateOf(proxyBackendUrl) }
         
         val localContext = LocalContext.current
-        val googleEmail by viewModel.googleAccountEmail.collectAsStateWithLifecycle()
-        val googleName by viewModel.googleAccountName.collectAsStateWithLifecycle()
-        val googlePhoto by viewModel.googleAccountPhoto.collectAsStateWithLifecycle()
-        val syncStatus by viewModel.cloudSyncStatus.collectAsStateWithLifecycle()
-        val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
-        val firebaseEmail by viewModel.firebaseUserEmail.collectAsStateWithLifecycle()
-        val firebaseUid by viewModel.firebaseUserId.collectAsStateWithLifecycle()
-        val firebaseStatus by viewModel.firebaseAuthStatus.collectAsStateWithLifecycle()
-
-        LaunchedEffect(Unit) {
-            if (googleEmail.isNotEmpty() && cloudSyncEnabled) {
-                viewModel.syncWithGoogleDrive(localContext, forceUpload = false)
-            }
-        }
-
-        val googleAuthLauncher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-            if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
-                val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                try {
-                    val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
-                    if (account != null) {
-                        viewModel.handleGoogleSignIn(
-                            account.email ?: "",
-                            account.displayName ?: "",
-                            account.photoUrl?.toString() ?: "",
-                            account.idToken,
-                            localContext
-                        )
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-
         val avatarPickerLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.GetContent()
         ) { uri: Uri? ->
@@ -1397,358 +1357,60 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             }
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = editProxyBackendUrl,
-                            onValueChange = { editProxyBackendUrl = it },
-                            label = {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Бэкенд-прокси (необязательно)"
-                                        "es" -> "Backend proxy (opcional)"
-                                        else -> "Backend Proxy Server (Optional)"
-                                    }
-                                )
-                            },
-                            placeholder = { Text("https://my-custom-proxy.org") },
-                            modifier = Modifier.fillMaxWidth().testTag("profile_proxy_input"),
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(Icons.Default.Cloud, null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            supportingText = {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Запросы к Google Drive API будут идти через ваш собственный сервер"
-                                        "es" -> "Las solicitudes de Google Drive se enviarán a través de su servidor"
-                                        else -> "Google Drive API requests will be routed via your custom server"
-                                    }
-                                )
-                            }
-                        )
-
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // Cloud Sync & Google Auth integration
-                        if (googleEmail.isEmpty()) {
-                            Card(
+                        // Cloud Sync setting card item
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .testTag("cloud_sync_toggle_container"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                    .testTag("cloud_sync_toggle_container"),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
-                                )
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.Cloud,
+                                    contentDescription = "Cloud Sync",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Cloud,
-                                        contentDescription = "Cloud Icon",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = when (appLanguage) {
-                                            "ru" -> "Сохранение на Google Диске"
-                                            "es" -> "Guardar en Google Drive"
-                                            else -> "Backup on Google Drive"
+                                            "ru" -> "Облачная синхронизация"
+                                            "es" -> "Sincronización en la nube"
+                                            else -> "Cloud Sync"
                                         },
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = when (appLanguage) {
-                                            "ru" -> "Войдите в аккаунт Google, чтобы автоматически синхронизировать ваши проекты и произведения в отдельной папке на Google Диске."
-                                            "es" -> "Inicia sesión con Google para sincronizar automáticamente tus proyectos y obras en una carpeta de Google Drive."
-                                            else -> "Sign in with Google to automatically synchronize your projects and documents in a dedicated folder on Google Drive."
+                                            "ru" -> "Резервное копирование проектов"
+                                            "es" -> "Copia de seguridad remota"
+                                            else -> "Backup projects with remote storage"
                                         },
                                         style = MaterialTheme.typography.bodySmall,
-                                        textAlign = TextAlign.Center,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                     )
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                    
-                                    Button(
-                                        onClick = {
-                                            val gsoObj = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                            ).requestEmail()
-                                             .requestProfile()
-                                             .requestIdToken(com.example.BuildConfig.GOOGLE_WEB_CLIENT_ID).requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.file"))
-                                             .build()
-                                            val googleClient = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(localContext, gsoObj)
-                                            googleAuthLauncher.launch(googleClient.signInIntent)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.onSurface,
-                                            contentColor = MaterialTheme.colorScheme.surface
-                                        ),
-                                        modifier = Modifier.fillMaxWidth().height(44.dp),
-                                        shape = RoundedCornerShape(24.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.AccountCircle,
-                                                contentDescription = "Google Sign-In",
-                                                modifier = Modifier.size(20.dp),
-                                                tint = MaterialTheme.colorScheme.surface
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = when (appLanguage) {
-                                                    "ru" -> "Войти через Google"
-                                                    "es" -> "Iniciar sesión con Google"
-                                                    else -> "Sign In with Google"
-                                                },
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
                                 }
-                            }
-                        } else {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                    .testTag("cloud_sync_toggle_container"),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                androidx.compose.material3.Switch(
+                                    checked = editCloudSync,
+                                    onCheckedChange = { editCloudSync = it },
+                                    modifier = Modifier.testTag("cloud_sync_switch")
                                 )
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        if (googlePhoto.isNotEmpty()) {
-                                            AsyncImage(
-                                                model = googlePhoto,
-                                                contentDescription = "Google Profile Photo",
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                                            )
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.primaryContainer),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = googleName.take(1).uppercase(),
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = googleName,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = googleEmail,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudQueue,
-                                            contentDescription = "Sync Status Icon",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        if (isSyncing) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(12.dp),
-                                                strokeWidth = 1.5.dp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                        }
-                                        Text(
-                                            text = syncStatus,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-if (googleEmail.isNotEmpty()) {
-                                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
-                                        androidx.compose.foundation.layout.Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(
-                                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                                                )
-                                                .padding(8.dp)
-                                        ) {
-                                            androidx.compose.material3.Text(
-                                                text = "Firebase Session Status",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            androidx.compose.material3.Text(
-                                                text = "Status: $firebaseStatus",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            if (firebaseUid.isNotEmpty()) {
-                                                androidx.compose.material3.Text(
-                                                     text = "UID: $firebaseUid",
-                                                     style = MaterialTheme.typography.bodySmall,
-                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                                )
-                                            }
-                                        }
-                                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
-                                    }
-
-                                    // Automatic sync toggle inside
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = when (appLanguage) {
-                                                    "ru" -> "Авто-синхронизация"
-                                                    "es" -> "Auto-sincronizar"
-                                                    else -> "Auto-Sync"
-                                                },
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = when (appLanguage) {
-                                                    "ru" -> "Резервное копирование при сохранении"
-                                                    "es" -> "Respaldar al guardar"
-                                                    else -> "Autosave directly to Google Drive"
-                                                },
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                        androidx.compose.material3.Switch(
-                                            checked = editCloudSync,
-                                            onCheckedChange = { editCloudSync = it },
-                                            modifier = Modifier.testTag("cloud_sync_switch")
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    // Direct Sync / Force actions
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Button(
-                                            onClick = { viewModel.syncWithGoogleDrive(localContext, forceUpload = false) },
-                                            modifier = Modifier.weight(1f).height(36.dp),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) {
-                                            Text(
-                                                text = when (appLanguage) {
-                                                    "ru" -> "Синхро"
-                                                    "es" -> "Sinc"
-                                                    else -> "Sync"
-                                                },
-                                                style = MaterialTheme.typography.labelMedium
-                                            )
-                                        }
-
-                                        Button(
-                                            onClick = { viewModel.syncWithGoogleDrive(localContext, forceUpload = true) },
-                                            modifier = Modifier.weight(1.1f).height(36.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.secondary
-                                            ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) {
-                                            Text(
-                                                text = when (appLanguage) {
-                                                    "ru" -> "В облако"
-                                                    "es" -> "Subir"
-                                                    else -> "Upload"
-                                                },
-                                                style = MaterialTheme.typography.labelMedium
-                                            )
-                                        }
-
-                                        Button(
-                                            onClick = { viewModel.syncWithGoogleDrive(localContext, forceDownload = true) },
-                                            modifier = Modifier.weight(1.1f).height(36.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.tertiary
-                                            ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) {
-                                            Text(
-                                                text = when (appLanguage) {
-                                                    "ru" -> "Из облака"
-                                                    "es" -> "Descargar"
-                                                    else -> "Download"
-                                                },
-                                                style = MaterialTheme.typography.labelMedium
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    OutlinedButton(
-                                        onClick = { viewModel.handleGoogleSignOut(localContext) },
-                                        modifier = Modifier.fillMaxWidth().height(36.dp),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) {
-                                        Text(
-                                            text = when (appLanguage) {
-                                                "ru" -> "Выйти из Google"
-                                                "es" -> "Salir de Google"
-                                                else -> "Sign out of Google"
-                                            },
-                                            style = MaterialTheme.typography.labelSmall
-                                        )
-                                    }
-                                }
                             }
                         }
 
@@ -1777,7 +1439,6 @@ if (googleEmail.isNotEmpty()) {
                                     viewModel.setAuthorProfile(editName, editBio, editEmail)
                                     viewModel.setAuthorAvatar(editAvatarPath)
                                     viewModel.setCloudSyncEnabled(editCloudSync)
-                                    viewModel.setProxyBackendUrl(editProxyBackendUrl)
                                     showAccountDialog = false
                                 },
                                 modifier = Modifier.weight(1f).height(48.dp).testTag("save_profile_button")
@@ -2944,8 +2605,6 @@ fun DocumentEditorScreen(
     val history by viewModel.activeDocumentHistory.collectAsStateWithLifecycle()
 
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
-    val cloudSyncEnabled by viewModel.cloudSyncEnabled.collectAsStateWithLifecycle()
-    val googleEmail by viewModel.googleAccountEmail.collectAsStateWithLifecycle()
     var isTranslitEnabled by remember { mutableStateOf(false) }
     var isVirtualKeyboardVisible by remember { mutableStateOf(false) }
     var activeBlockIndex by remember { mutableStateOf(0) }
@@ -3019,12 +2678,8 @@ fun DocumentEditorScreen(
                         }
                     },
                     navigationIcon = {
-                        val context = LocalContext.current
                         IconButton(onClick = {
                             viewModel.saveActiveDocumentImmediate()
-                            if (cloudSyncEnabled && googleEmail.isNotEmpty()) {
-                                viewModel.syncWithGoogleDrive(context, forceUpload = false)
-                            }
                             onBack()
                         }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, l("close", appLanguage))
@@ -3044,16 +2699,7 @@ fun DocumentEditorScreen(
                         IconButton(onClick = { isHistoryPanelVisible = !isHistoryPanelVisible }) {
                             Icon(Icons.Filled.History, l("versions", appLanguage))
                         }
-                        val context = LocalContext.current
-                        IconButton(
-                            onClick = {
-                                viewModel.saveActiveDocumentImmediate()
-                                if (cloudSyncEnabled && googleEmail.isNotEmpty()) {
-                                    viewModel.syncWithGoogleDrive(context, forceUpload = false)
-                                }
-                            },
-                            modifier = Modifier.testTag("editor_manual_save_btn")
-                        ) {
+                        IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
                             Icon(Icons.Filled.Save, l("manual_save", appLanguage))
                         }
                         IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {
@@ -3609,12 +3255,8 @@ fun DocumentEditorScreen(
                     }
                 },
                 navigationIcon = {
-                    val context = LocalContext.current
                     IconButton(onClick = {
                         viewModel.saveActiveDocumentImmediate()
-                        if (cloudSyncEnabled && googleEmail.isNotEmpty()) {
-                            viewModel.syncWithGoogleDrive(context, forceUpload = false)
-                        }
                         onBack()
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, l("close", appLanguage))
@@ -3627,16 +3269,7 @@ fun DocumentEditorScreen(
                     IconButton(onClick = { isHistoryPanelVisible = !isHistoryPanelVisible }) {
                         Icon(Icons.Filled.History, l("versions", appLanguage))
                     }
-                    val context = LocalContext.current
-                    IconButton(
-                        onClick = {
-                            viewModel.saveActiveDocumentImmediate()
-                            if (cloudSyncEnabled && googleEmail.isNotEmpty()) {
-                                viewModel.syncWithGoogleDrive(context, forceUpload = false)
-                            }
-                        },
-                        modifier = Modifier.testTag("editor_manual_save_btn")
-                    ) {
+                    IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
                         Icon(Icons.Filled.Save, l("manual_save", appLanguage))
                     }
                     IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {

@@ -230,38 +230,6 @@ class WriterRepository(private val db: WriterDatabase) {
         settingsDao.saveSetting(AppSetting("cloud_sync_enabled", enabled.toString()))
     }
 
-    suspend fun getGoogleAccountEmail(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("google_account_email") ?: ""
-    }
-
-    suspend fun saveGoogleAccountEmail(email: String) = withContext(Dispatchers.IO) {
-        settingsDao.saveSetting(AppSetting("google_account_email", email))
-    }
-
-    suspend fun getGoogleAccountName(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("google_account_name") ?: ""
-    }
-
-    suspend fun saveGoogleAccountName(name: String) = withContext(Dispatchers.IO) {
-        settingsDao.saveSetting(AppSetting("google_account_name", name))
-    }
-
-    suspend fun getGoogleAccountPhoto(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("google_account_photo") ?: ""
-    }
-
-    suspend fun saveGoogleAccountPhoto(url: String) = withContext(Dispatchers.IO) {
-        settingsDao.saveSetting(AppSetting("google_account_photo", url))
-    }
-
-    suspend fun getProxyBackendUrl(): String = withContext(Dispatchers.IO) {
-        settingsDao.getSetting("proxy_backend_url") ?: ""
-    }
-
-    suspend fun saveProxyBackendUrl(url: String) = withContext(Dispatchers.IO) {
-        settingsDao.saveSetting(AppSetting("proxy_backend_url", url))
-    }
-
     // --- Productivity Statistics ---
     val statsFlow: Flow<List<ProductivityStat>> = statsDao.getAllStatsFlow()
 
@@ -334,6 +302,7 @@ class WriterRepository(private val db: WriterDatabase) {
                 put("contentBlocksJson", item.contentBlocksJson)
                 put("sortOrder", item.sortOrder)
                 put("passwordHash", item.passwordHash ?: "")
+                put("isPlainText", item.isPlainText)
                 put("createdAt", item.createdAt)
                 put("updatedAt", item.updatedAt)
             })
@@ -449,6 +418,7 @@ class WriterRepository(private val db: WriterDatabase) {
                         contentBlocksJson = obj.getString("contentBlocksJson"),
                         sortOrder = obj.optInt("sortOrder", 0),
                         passwordHash = obj.optString("passwordHash").ifEmpty { null },
+                        isPlainText = obj.optBoolean("isPlainText", false),
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
                     )
