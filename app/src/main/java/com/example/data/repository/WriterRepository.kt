@@ -230,6 +230,30 @@ class WriterRepository(private val db: WriterDatabase) {
         settingsDao.saveSetting(AppSetting("cloud_sync_enabled", enabled.toString()))
     }
 
+    suspend fun getGoogleAccountEmail(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("google_account_email") ?: ""
+    }
+
+    suspend fun saveGoogleAccountEmail(email: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("google_account_email", email))
+    }
+
+    suspend fun getGoogleAccountName(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("google_account_name") ?: ""
+    }
+
+    suspend fun saveGoogleAccountName(name: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("google_account_name", name))
+    }
+
+    suspend fun getGoogleAccountPhoto(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("google_account_photo") ?: ""
+    }
+
+    suspend fun saveGoogleAccountPhoto(url: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("google_account_photo", url))
+    }
+
     // --- Productivity Statistics ---
     val statsFlow: Flow<List<ProductivityStat>> = statsDao.getAllStatsFlow()
 
