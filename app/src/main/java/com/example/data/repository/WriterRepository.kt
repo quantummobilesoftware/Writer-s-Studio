@@ -254,6 +254,14 @@ class WriterRepository(private val db: WriterDatabase) {
         settingsDao.saveSetting(AppSetting("google_account_photo", url))
     }
 
+    suspend fun getProxyBackendUrl(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("proxy_backend_url") ?: ""
+    }
+
+    suspend fun saveProxyBackendUrl(url: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("proxy_backend_url", url))
+    }
+
     // --- Productivity Statistics ---
     val statsFlow: Flow<List<ProductivityStat>> = statsDao.getAllStatsFlow()
 

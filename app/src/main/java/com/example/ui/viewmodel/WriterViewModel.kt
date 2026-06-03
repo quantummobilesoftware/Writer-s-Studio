@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resumeWithException
 import java.io.File
 import java.io.FileOutputStream
 
@@ -101,6 +102,53 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
+    private val _firebaseUserEmail = MutableStateFlow("")
+    val firebaseUserEmail: StateFlow<String> = _firebaseUserEmail.asStateFlow()
+
+    private val _firebaseUserId = MutableStateFlow("")
+    val firebaseUserId: StateFlow<String> = _firebaseUserId.asStateFlow()
+
+    private val _firebaseAuthStatus = MutableStateFlow("Не авторизован")
+    val firebaseAuthStatus: StateFlow<String> = _firebaseAuthStatus.asStateFlow()
+
+    private val _proxyBackendUrl = MutableStateFlow("")
+    val proxyBackendUrl: StateFlow<String> = _proxyBackendUrl.asStateFlow()
+
+    private var firebaseAuth: com.google.firebase.auth.FirebaseAuth? = null
+
+    private fun getFirebaseAuth(context: Context): com.google.firebase.auth.FirebaseAuth {
+        val auth = firebaseAuth
+        if (auth != null) return auth
+        
+        synchronized(this) {
+            val cachedAuth = firebaseAuth
+            if (cachedAuth != null) return cachedAuth
+            val app = if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setApiKey("AIzaSyBw-mock-key-for-auth-and-sync-processes")
+                    .setApplicationId(context.packageName)
+                    .setProjectId("writers-studio-app")
+                    .build()
+                com.google.firebase.FirebaseApp.initializeApp(context, options)
+            } else {
+                com.google.firebase.FirebaseApp.getInstance()
+            }
+            val newAuth = com.google.firebase.auth.FirebaseAuth.getInstance(app)
+            firebaseAuth = newAuth
+            return newAuth
+        }
+    }
+
+    private suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T = kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+        addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                continuation.resume(task.result) {}
+            } else {
+                continuation.resumeWithException(task.exception ?: Exception("Task failed"))
+            }
+        }
+    }
+
     // Loaded folders & documents list
     val currentFolders: StateFlow<List<Folder>> = _selectedProject
         .flatMapLatest { project ->
@@ -178,12 +226,19 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             _authorAvatar.value = repository.getAuthorAvatar()
             _cloudSyncEnabled.value = repository.getCloudSyncEnabled()
             
+            _proxyBackendUrl.value = repository.getProxyBackendUrl()
+            com.example.util.GoogleDriveService.customProxyBaseUrl = _proxyBackendUrl.value
+            
             _googleAccountEmail.value = repository.getGoogleAccountEmail()
             _googleAccountName.value = repository.getGoogleAccountName()
             _googleAccountPhoto.value = repository.getGoogleAccountPhoto()
             if (_googleAccountEmail.value.isNotEmpty()) {
+                _firebaseUserEmail.value = _googleAccountEmail.value
+                _firebaseAuthStatus.value = "Сессия аутентифицирована"
                 _cloudSyncStatus.value = "Связано: ${_googleAccountEmail.value}"
             } else {
+                _firebaseUserEmail.value = ""
+                _firebaseAuthStatus.value = "Не авторизован"
                 _cloudSyncStatus.value = "Не вошел"
             }
         }
@@ -203,7 +258,15 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         }
     }
 
-    fun handleGoogleSignIn(email: String, name: String, photoUrl: String, context: Context) {
+    fun setProxyBackendUrl(url: String) {
+        viewModelScope.launch {
+            repository.saveProxyBackendUrl(url)
+            _proxyBackendUrl.value = url
+            com.example.util.GoogleDriveService.customProxyBaseUrl = url
+        }
+    }
+
+    fun handleGoogleSignIn(email: String, name: String, photoUrl: String, idToken: String?, context: Context) {
         viewModelScope.launch {
             repository.saveGoogleAccountEmail(email)
             repository.saveGoogleAccountName(name)
@@ -213,8 +276,43 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             _googleAccountPhoto.value = photoUrl
             _cloudSyncStatus.value = "Связано: $email"
             
-            // Auto sync
-            syncWithGoogleDrive(context, forceUpload = false)
+            if (!idToken.isNullOrEmpty()) {
+                _cloudSyncStatus.value = "Авторизация в Firebase..."
+                signInWithFirebase(idToken, context)
+            } else {
+                // Auto sync directly
+                syncWithGoogleDrive(context, forceUpload = false)
+            }
+        }
+    }
+
+    private fun signInWithFirebase(idToken: String, context: Context) {
+        viewModelScope.launch {
+            try {
+                val auth = getFirebaseAuth(context)
+                val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(idToken, null)
+                val result = auth.signInWithCredential(credential).await()
+                val firebaseUser = result.user
+                
+                if (firebaseUser != null) {
+                    _firebaseUserEmail.value = firebaseUser.email ?: ""
+                    _firebaseUserId.value = firebaseUser.uid
+                    _firebaseAuthStatus.value = "Firebase аутентифицирован"
+                    _cloudSyncStatus.value = "Аутентифицировано: ${firebaseUser.email}"
+                } else {
+                    _firebaseAuthStatus.value = "Ошибка: пользователя нет"
+                }
+                
+                // Now run drive synchronization
+                syncWithGoogleDrive(context, forceUpload = false)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _firebaseAuthStatus.value = "Ошибка сессии: ${e.localizedMessage}"
+                _cloudSyncStatus.value = "Ошибка Firebase: ${e.localizedMessage}"
+                
+                // Fallback to auto sync directly if SHA-1 / configuration is absent
+                syncWithGoogleDrive(context, forceUpload = false)
+            }
         }
     }
 
@@ -228,6 +326,17 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             _googleAccountPhoto.value = ""
             _cloudSyncStatus.value = "Не вошел"
             setCloudSyncEnabled(false)
+            
+            _firebaseUserEmail.value = ""
+            _firebaseUserId.value = ""
+            _firebaseAuthStatus.value = "Не авторизован"
+            
+            try {
+                val auth = getFirebaseAuth(context)
+                auth.signOut()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             
             try {
                 val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(

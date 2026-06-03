@@ -24,6 +24,23 @@ object GoogleDriveService {
     private const val TAG = "GoogleDriveService"
     private val client = OkHttpClient()
 
+    @Volatile
+    var customProxyBaseUrl: String = ""
+
+    fun getProxiedUrl(originalUrl: String): String {
+        val proxy = customProxyBaseUrl.trim()
+        if (proxy.isEmpty()) return originalUrl
+        
+        val cleanProxy = if (proxy.endsWith("/")) proxy.substring(0, proxy.length - 1) else proxy
+        
+        if (originalUrl.startsWith("https://www.googleapis.com/upload")) {
+            return originalUrl.replace("https://www.googleapis.com/upload", cleanProxy + "/upload")
+        } else if (originalUrl.startsWith("https://www.googleapis.com")) {
+            return originalUrl.replace("https://www.googleapis.com", cleanProxy)
+        }
+        return originalUrl
+    }
+
     // Retrieve OAuth2 token
     suspend fun getAccessToken(context: Context, accountEmail: String): String? = withContext(Dispatchers.IO) {
         try {
@@ -48,7 +65,7 @@ object GoogleDriveService {
     suspend fun getOrCreateFolder(token: String, folderName: String): String? = withContext(Dispatchers.IO) {
         val searchUrl = "https://www.googleapis.com/drive/v3/files?q=name='$folderName' and mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id)"
         val request = Request.Builder()
-            .url(searchUrl)
+            .url(getProxiedUrl(searchUrl))
             .header("Authorization", "Bearer $token")
             .get()
             .build()
@@ -78,7 +95,7 @@ object GoogleDriveService {
         }.toString()
 
         val postRequest = Request.Builder()
-            .url(createUrl)
+            .url(getProxiedUrl(createUrl))
             .header("Authorization", "Bearer $token")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
             .build()
@@ -104,7 +121,7 @@ object GoogleDriveService {
         val list = mutableListOf<DriveFile>()
         val queryUrl = "https://www.googleapis.com/drive/v3/files?q='$folderId' in parents and trashed=false&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc"
         val request = Request.Builder()
-            .url(queryUrl)
+            .url(getProxiedUrl(queryUrl))
             .header("Authorization", "Bearer $token")
             .get()
             .build()
@@ -150,7 +167,7 @@ object GoogleDriveService {
         var existingFileId: String? = null
         val findUrl = "https://www.googleapis.com/drive/v3/files?q=name='$fileName' and '$folderId' in parents and trashed=false&fields=files(id)"
         val searchRequest = Request.Builder()
-            .url(findUrl)
+            .url(getProxiedUrl(findUrl))
             .header("Authorization", "Bearer $token")
             .get()
             .build()
@@ -174,7 +191,7 @@ object GoogleDriveService {
             // Update exist file content
             val updateUrl = "https://www.googleapis.com/upload/drive/v3/files/$existingFileId?uploadType=media"
             val updateRequest = Request.Builder()
-                .url(updateUrl)
+                .url(getProxiedUrl(updateUrl))
                 .header("Authorization", "Bearer $token")
                 .patch(fileContent.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
                 .build()
@@ -200,7 +217,7 @@ object GoogleDriveService {
             }.toString()
 
             val createRequest = Request.Builder()
-                .url(createUrl)
+                .url(getProxiedUrl(createUrl))
                 .header("Authorization", "Bearer $token")
                 .post(payload.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
                 .build()
@@ -223,7 +240,7 @@ object GoogleDriveService {
                 // Upload content to the newly created metadata placeholder
                 val mediaUrl = "https://www.googleapis.com/upload/drive/v3/files/$newFileId?uploadType=media"
                 val mediaRequest = Request.Builder()
-                    .url(mediaUrl)
+                    .url(getProxiedUrl(mediaUrl))
                     .header("Authorization", "Bearer $token")
                     .patch(fileContent.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
                     .build()
@@ -249,7 +266,7 @@ object GoogleDriveService {
     suspend fun downloadBackup(token: String, fileId: String): String? = withContext(Dispatchers.IO) {
         val downloadUrl = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media"
         val request = Request.Builder()
-            .url(downloadUrl)
+            .url(getProxiedUrl(downloadUrl))
             .header("Authorization", "Bearer $token")
             .get()
             .build()

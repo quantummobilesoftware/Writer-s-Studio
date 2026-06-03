@@ -405,6 +405,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
     val authorEmail by viewModel.authorEmail.collectAsStateWithLifecycle()
     val authorAvatar by viewModel.authorAvatar.collectAsStateWithLifecycle()
     val cloudSyncEnabled by viewModel.cloudSyncEnabled.collectAsStateWithLifecycle()
+    val proxyBackendUrl by viewModel.proxyBackendUrl.collectAsStateWithLifecycle()
     val googleEmail by viewModel.googleAccountEmail.collectAsStateWithLifecycle()
     val statsList by viewModel.statistics.collectAsStateWithLifecycle()
 
@@ -1101,6 +1102,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
         var editEmail by remember { mutableStateOf(authorEmail) }
         var editCloudSync by remember { mutableStateOf(cloudSyncEnabled) }
         var editAvatarPath by remember { mutableStateOf(authorAvatar) }
+        var editProxyBackendUrl by remember { mutableStateOf(proxyBackendUrl) }
         
         val localContext = LocalContext.current
         val googleEmail by viewModel.googleAccountEmail.collectAsStateWithLifecycle()
@@ -1108,6 +1110,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
         val googlePhoto by viewModel.googleAccountPhoto.collectAsStateWithLifecycle()
         val syncStatus by viewModel.cloudSyncStatus.collectAsStateWithLifecycle()
         val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+        val firebaseEmail by viewModel.firebaseUserEmail.collectAsStateWithLifecycle()
+        val firebaseUid by viewModel.firebaseUserId.collectAsStateWithLifecycle()
+        val firebaseStatus by viewModel.firebaseAuthStatus.collectAsStateWithLifecycle()
 
         LaunchedEffect(Unit) {
             if (googleEmail.isNotEmpty() && cloudSyncEnabled) {
@@ -1127,6 +1132,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             account.email ?: "",
                             account.displayName ?: "",
                             account.photoUrl?.toString() ?: "",
+                            account.idToken,
                             localContext
                         )
                     }
@@ -1391,6 +1397,37 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             }
                         )
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = editProxyBackendUrl,
+                            onValueChange = { editProxyBackendUrl = it },
+                            label = {
+                                Text(
+                                    when (appLanguage) {
+                                        "ru" -> "Бэкенд-прокси (необязательно)"
+                                        "es" -> "Backend proxy (opcional)"
+                                        else -> "Backend Proxy Server (Optional)"
+                                    }
+                                )
+                            },
+                            placeholder = { Text("https://my-custom-proxy.org") },
+                            modifier = Modifier.fillMaxWidth().testTag("profile_proxy_input"),
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(Icons.Default.Cloud, null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            supportingText = {
+                                Text(
+                                    when (appLanguage) {
+                                        "ru" -> "Запросы к Google Drive API будут идти через ваш собственный сервер"
+                                        "es" -> "Las solicitudes de Google Drive se enviarán a través de su servidor"
+                                        else -> "Google Drive API requests will be routed via your custom server"
+                                    }
+                                )
+                            }
+                        )
+
                         Spacer(modifier = Modifier.height(4.dp))
 
                         // Cloud Sync & Google Auth integration
@@ -1445,7 +1482,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                 com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
                                             ).requestEmail()
                                              .requestProfile()
-                                             .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.file"))
+                                             .requestIdToken(com.example.BuildConfig.GOOGLE_WEB_CLIENT_ID).requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.file"))
                                              .build()
                                             val googleClient = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(localContext, gsoObj)
                                             googleAuthLauncher.launch(googleClient.signInIntent)
@@ -1566,6 +1603,39 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                     }
 
                                     Spacer(modifier = Modifier.height(12.dp))
+
+if (googleEmail.isNotEmpty()) {
+                                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
+                                        androidx.compose.foundation.layout.Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(8.dp)
+                                        ) {
+                                            androidx.compose.material3.Text(
+                                                text = "Firebase Session Status",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            androidx.compose.material3.Text(
+                                                text = "Status: $firebaseStatus",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            if (firebaseUid.isNotEmpty()) {
+                                                androidx.compose.material3.Text(
+                                                     text = "UID: $firebaseUid",
+                                                     style = MaterialTheme.typography.bodySmall,
+                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                )
+                                            }
+                                        }
+                                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
+                                    }
 
                                     // Automatic sync toggle inside
                                     Row(
@@ -1707,6 +1777,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                     viewModel.setAuthorProfile(editName, editBio, editEmail)
                                     viewModel.setAuthorAvatar(editAvatarPath)
                                     viewModel.setCloudSyncEnabled(editCloudSync)
+                                    viewModel.setProxyBackendUrl(editProxyBackendUrl)
                                     showAccountDialog = false
                                 },
                                 modifier = Modifier.weight(1f).height(48.dp).testTag("save_profile_button")
