@@ -47,6 +47,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -3009,6 +3011,16 @@ fun DocumentEditorScreen(
                             )
                         }
 
+                        LaunchedEffect(localTextValue.selection) {
+                            val cursor = localTextValue.selection.start
+                            val totalLength = localTextValue.text.length
+                            if (totalLength > 0) {
+                                val ratio = cursor.toFloat() / totalLength.toFloat()
+                                val targetScroll = (basicScrollState.maxValue * ratio).toInt()
+                                basicScrollState.animateScrollTo(targetScroll)
+                            }
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -3656,8 +3668,22 @@ fun DocumentEditorScreen(
                     contentPadding = PaddingValues(bottom = 120.dp),
                     state = proLazyListState
                 ) {
-                    itemsIndexed(blocks) { index, block ->
+                    itemsIndexed(
+                        items = blocks,
+                        key = { _, block -> block.id }
+                    ) { index, block ->
                         val isSelected = activeBlockIndex == index
+                        val focusRequester = remember { FocusRequester() }
+
+                        LaunchedEffect(isSelected) {
+                            if (isSelected) {
+                                try {
+                                    focusRequester.requestFocus()
+                                } catch (e: Exception) {
+                                    // ignore if not attached yet
+                                }
+                            }
+                        }
 
                         Box(
                             modifier = Modifier
@@ -3865,7 +3891,7 @@ fun DocumentEditorScreen(
                                         textStyle = textStyle,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .onFocusChanged { if (it.isFocused) { activeBlockIndex = index } }.testTag("editor_text_field_$index")
+                                            .focusRequester(focusRequester).onFocusChanged { if (it.isFocused) { activeBlockIndex = index } }.testTag("editor_text_field_$index")
                                     )
                                     if (block.text.isEmpty()) {
                                         Text(
