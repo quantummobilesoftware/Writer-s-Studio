@@ -55,6 +55,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -2995,17 +2997,31 @@ fun DocumentEditorScreen(
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                     ) {
                         val basicScrollState = rememberScrollState()
+                        var localTextValue by remember { mutableStateOf(TextFieldValue(textFileContent)) }
+                        if (localTextValue.text != textFileContent) {
+                            localTextValue = localTextValue.copy(
+                                text = textFileContent,
+                                selection = if (textFileContent.startsWith("- ") && localTextValue.text.isEmpty()) {
+                                    TextRange(2)
+                                } else {
+                                    TextRange(textFileContent.length)
+                                }
+                            )
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(16.dp)
                         ) {
                             BasicTextField(
-                                value = textFileContent,
+                                value = localTextValue,
                                 onValueChange = { newVal ->
+                                    val processedVal = processTextFieldValueSmartEditor(localTextValue, newVal)
+                                    localTextValue = processedVal
                                     val activeBlock = blocks.firstOrNull() ?: EditorBlock(type = "paragraph", text = "")
                                     viewModel.updateEditorBlocks(
-                                        listOf(activeBlock.copy(text = newVal)),
+                                        listOf(activeBlock.copy(text = processedVal.text)),
                                         updateHistory = false
                                     )
                                 },
@@ -3780,35 +3796,56 @@ fun DocumentEditorScreen(
                                 )
 
                                 Box(modifier = Modifier.padding(calculatedPadding)) {
+                                    var blockTextValue by remember {
+                                        mutableStateOf(
+                                            TextFieldValue(
+                                                text = block.text,
+                                                selection = if (block.text.startsWith("- ")) TextRange(2) else TextRange(block.text.length)
+                                            )
+                                        )
+                                    }
+                                    if (blockTextValue.text != block.text) {
+                                        blockTextValue = blockTextValue.copy(
+                                            text = block.text,
+                                            selection = if (block.text.startsWith("- ") && blockTextValue.text.isEmpty()) {
+                                                TextRange(2)
+                                            } else {
+                                                TextRange(block.text.length)
+                                            }
+                                        )
+                                    }
+
                                     BasicTextField(
-                                        value = block.text,
+                                        value = blockTextValue,
                                         onValueChange = label@{ newVal ->
-                                             if (newVal.contains("\n")) {
-                                                 val parts = newVal.split("\n", limit = 2)
+                                             blockTextValue = newVal
+                                             val rawText = newVal.text
+                                             if (rawText.contains("\n")) {
+                                                 val parts = rawText.split("\n", limit = 2)
                                                  val firstPart = parts.getOrNull(0) ?: ""
                                                  val secondPart = parts.getOrNull(1) ?: ""
                                                  val list = blocks.toMutableList()
                                                  list[index] = block.copy(text = firstPart)
                                                  val nextType = if (block.type == "character") "dialogue" else "paragraph"
-                                                 val newBlock = EditorBlock(type = nextType, text = secondPart)
+                                                 val newBlock = EditorBlock(type = nextType, text = if (firstPart.trimStart().startsWith("- ")) "- " + secondPart else secondPart)
                                                  list.add(index + 1, newBlock)
                                                  viewModel.updateEditorBlocks(list)
                                                  activeBlockIndex = index + 1
                                                  return@label
                                              }
-                                            var updatedValue = if (isTranslitEnabled && newVal.length > block.text.length) {
-                                                val addedText = newVal.substring(block.text.length)
+                                            var updatedValue = if (isTranslitEnabled && rawText.length > block.text.length) {
+                                                val addedText = rawText.substring(block.text.length)
                                                 block.text + transliterateEnToRu(addedText)
-                                            } else newVal
+                                            } else rawText
 
                                             updatedValue = when (block.type) {
                                                 "scene", "character" -> updatedValue.uppercase()
                                                 "parenthetical" -> {
                                                     if (block.text.isEmpty() && updatedValue.isNotEmpty() && !updatedValue.startsWith("(")) {
                                                         "($updatedValue)"
-                                                    } else {
+                                                     } else {
                                                         updatedValue
-                                                    }
+                                                     }
                                                 }
                                                 "action", "dialogue", "h1", "h2", "h3" -> {
                                                     if (block.text.isEmpty() && updatedValue.isNotEmpty()) {
@@ -3821,7 +3858,7 @@ fun DocumentEditorScreen(
                                             }
 
                                             val updated = blocks.mapIndexed { idx, b ->
-                                                if (idx == index) b.copy(text = updatedValue) else b
+                                                if (idx == index) b.copy(text = if (block.text == "- " && updatedValue == "-") "" else updatedValue) else b
                                             }
                                             viewModel.updateEditorBlocks(updated, updateHistory = false)
                                         },
@@ -5894,6 +5931,137 @@ fun l(key: String, lang: String): String {
         )
     )
     return dictionary[resolvedLang]?.get(key) ?: (dictionary["ru"]?.get(key) ?: key)
+}
+
+fun processPlainTextSmartEditor(oldText: String, newText: String): String {
+    if (newText.length < oldText.length) {
+        var diffIndex = -1
+        for (i in 0 until minOf(oldText.length, newText.length)) {
+            if (oldText[i] != newText[i]) {
+                diffIndex = i
+                break
+            }
+        }
+        if (diffIndex == -1) {
+            diffIndex = newText.length
+        }
+        val lineStart = if (diffIndex <= 0) 0 else {
+            val lastNl = newText.substring(0, diffIndex).lastIndexOf('\n')
+            if (lastNl == -1) 0 else lastNl + 1
+        }
+        val lineSnippet = newText.substring(lineStart, minOf(newText.length, lineStart + 10))
+        val oldLineSnippet = oldText.substring(lineStart, minOf(oldText.length, lineStart + 11))
+        
+        if (lineSnippet.startsWith("-") && !lineSnippet.startsWith("- ") && oldLineSnippet.startsWith("- ")) {
+            return newText.substring(0, lineStart) + newText.substring(lineStart + 1)
+        }
+    }
+
+    if (newText.length > oldText.length) {
+        var diffIndex = -1
+        for (i in 0 until minOf(oldText.length, newText.length)) {
+            if (oldText[i] != newText[i]) {
+                diffIndex = i
+                break
+            }
+        }
+        if (diffIndex == -1) {
+            diffIndex = oldText.length
+        }
+        
+        val inserted = newText.substring(diffIndex, diffIndex + (newText.length - oldText.length))
+        if (inserted.contains("\n")) {
+            val beforePart = newText.substring(0, diffIndex)
+            val lastNewline = beforePart.lastIndexOf('\n')
+            val lineStart = if (lastNewline == -1) 0 else lastNewline + 1
+            val lineBefore = beforePart.substring(lineStart)
+            
+            if (lineBefore.trimStart().startsWith("- ")) {
+                val prefix = if (lineBefore.startsWith("  - ")) "  - " else "- "
+                val newlinePosInInserted = inserted.indexOf('\n')
+                val absoluteNewlinePos = diffIndex + newlinePosInInserted
+                
+                val left = newText.substring(0, absoluteNewlinePos + 1)
+                val right = newText.substring(absoluteNewlinePos + 1)
+                return left + prefix + right
+            }
+        }
+    }
+    return newText
+}
+
+fun processTextFieldValueSmartEditor(oldVal: TextFieldValue, newVal: TextFieldValue): TextFieldValue {
+    val oldText = oldVal.text
+    val newText = newVal.text
+    
+    // 1. Text deleted
+    if (newText.length < oldText.length) {
+        var diffIndex = -1
+        for (i in 0 until minOf(oldText.length, newText.length)) {
+            if (oldText[i] != newText[i]) {
+                diffIndex = i
+                break
+            }
+        }
+        if (diffIndex == -1) {
+            diffIndex = newText.length
+        }
+        val lineStart = if (diffIndex <= 0) 0 else {
+            val lastNl = newText.substring(0, diffIndex).lastIndexOf('\n')
+            if (lastNl == -1) 0 else lastNl + 1
+        }
+        val lineSnippet = newText.substring(lineStart, minOf(newText.length, lineStart + 10))
+        val oldLineSnippet = oldText.substring(lineStart, minOf(oldText.length, lineStart + 11))
+        
+        if (lineSnippet.startsWith("-") && !lineSnippet.startsWith("- ") && oldLineSnippet.startsWith("- ")) {
+            val processedText = newText.substring(0, lineStart) + newText.substring(lineStart + 1)
+            return TextFieldValue(
+                text = processedText,
+                selection = TextRange(lineStart)
+            )
+        }
+        return newVal
+    }
+
+    // 2. Text added
+    if (newText.length > oldText.length) {
+        var diffIndex = -1
+        for (i in 0 until minOf(oldText.length, newText.length)) {
+            if (oldText[i] != newText[i]) {
+                diffIndex = i
+                break
+            }
+        }
+        if (diffIndex == -1) {
+            diffIndex = oldText.length
+        }
+        
+        val inserted = newText.substring(diffIndex, diffIndex + (newText.length - oldText.length))
+        if (inserted.contains("\n")) {
+            val beforePart = newText.substring(0, diffIndex)
+            val lastNewline = beforePart.lastIndexOf('\n')
+            val lineStart = if (lastNewline == -1) 0 else lastNewline + 1
+            val lineBefore = beforePart.substring(lineStart)
+            
+            if (lineBefore.trimStart().startsWith("- ")) {
+                val prefix = if (lineBefore.startsWith("  - ")) "  - " else "- "
+                val newlinePosInInserted = inserted.indexOf('\n')
+                val absoluteNewlinePos = diffIndex + newlinePosInInserted
+                
+                val left = newText.substring(0, absoluteNewlinePos + 1)
+                val right = newText.substring(absoluteNewlinePos + 1)
+                val processedText = left + prefix + right
+                
+                val newCursorPos = absoluteNewlinePos + 1 + prefix.length
+                return TextFieldValue(
+                    text = processedText,
+                    selection = TextRange(newCursorPos)
+                )
+            }
+        }
+    }
+    
+    return newVal
 }
 
 fun transliterateEnToRu(input: String): String {
