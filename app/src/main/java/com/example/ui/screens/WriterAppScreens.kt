@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -404,6 +405,8 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
 
     var projectToRename by remember { mutableStateOf<WorkspaceProject?>(null) }
     var longPressedProject by remember { mutableStateOf<WorkspaceProject?>(null) }
+    var projectToSendToTrash by remember { mutableStateOf<WorkspaceProject?>(null) }
+    var projectToDeletePermanently by remember { mutableStateOf<WorkspaceProject?>(null) }
 
     // Unified List Provider with category filtration
     val filteredList = remember(activeProjs, archivedProjs, trashProjs, currentSubTab, searchQuery, sortBy, searchCategoryFilter) {
@@ -787,9 +790,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             },
                             onFavoriteToggle = { viewModel.toggleFavoriteProject(proj) },
                             onArchiveToggle = { viewModel.toggleArchiveProject(proj) },
-                            onTrashToggle = { viewModel.sendToTrash(proj) },
+                            onTrashToggle = { projectToSendToTrash = proj },
                             onRestore = { viewModel.restoreFromTrash(proj) },
-                            onDeletePermanent = { viewModel.permanentDeleteProject(proj) },
+                            onDeletePermanent = { projectToDeletePermanently = proj },
                             isTrashMode = currentSubTab == "TRASH",
                             appLanguage = appLanguage,
                             onLongClick = { longPressedProject = proj },
@@ -1648,6 +1651,88 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
             }
         )
     }
+
+    if (projectToSendToTrash != null) {
+        val proj = projectToSendToTrash!!
+        AlertDialog(
+            onDismissRequest = { projectToSendToTrash = null },
+            title = {
+                Text(
+                    text = if (appLanguage == "ru") "Удалить проект?" else "Delete Project?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (appLanguage == "ru") {
+                        "Вы действительно хотите переместить проект \"${proj.title}\" в корзину?"
+                    } else {
+                        "Are you sure you want to move the project \"${proj.title}\" to trash?"
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.sendToTrash(proj)
+                        projectToSendToTrash = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.testTag("confirm_send_to_trash_btn")
+                ) {
+                    Text(if (appLanguage == "ru") "Удалить" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { projectToSendToTrash = null }) {
+                    Text(l("cancel", appLanguage))
+                }
+            }
+        )
+    }
+
+    if (projectToDeletePermanently != null) {
+        val proj = projectToDeletePermanently!!
+        AlertDialog(
+            onDismissRequest = { projectToDeletePermanently = null },
+            title = {
+                Text(
+                    text = if (appLanguage == "ru") "Удалить проект навсегда?" else "Delete Project Permanently?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (appLanguage == "ru") {
+                        "Вы действительно хотите безвозвратно удалить проект \"${proj.title}\"? Это действие нельзя отменить!"
+                    } else {
+                        "Are you sure you want to permanently delete the project \"${proj.title}\"? This action cannot be undone!"
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.permanentDeleteProject(proj)
+                        projectToDeletePermanently = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.testTag("confirm_hard_delete_btn")
+                ) {
+                    Text(if (appLanguage == "ru") "Стереть" else "Erase")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { projectToDeletePermanently = null }) {
+                    Text(l("cancel", appLanguage))
+                }
+            }
+        )
+    }
 }
 
 // --- PROJECT ROW ITEM ---
@@ -1816,6 +1901,7 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showCreateDocumentDialog by remember { mutableStateOf(false) }
     var documentToDelete by remember { mutableStateOf<Document?>(null) }
+    var folderToDelete by remember { mutableStateOf<Folder?>(null) }
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
 
     val currentLevelFolders = remember(folders, activeFolder) {
@@ -2156,7 +2242,7 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                                 }
                                 
                                 IconButton(
-                                    onClick = { viewModel.deleteFolder(fold.id) },
+                                    onClick = { folderToDelete = fold },
                                     modifier = Modifier
                                         .clip(androidx.compose.foundation.shape.CircleShape)
                                         .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f))
@@ -2455,10 +2541,52 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
             }
         )
     }
+
+    // DELETE FOLDER DIALOG
+    if (folderToDelete != null) {
+        val fold = folderToDelete!!
+        AlertDialog(
+            onDismissRequest = { folderToDelete = null },
+            title = {
+                Text(
+                    text = if (appLanguage == "ru") "Удалить папку?" else "Delete Folder?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (appLanguage == "ru") {
+                        "Вы действительно хотите удалить папку \"${fold.name}\" и все её содержимое? Это действие нельзя отменить."
+                    } else {
+                        "Are you sure you want to delete the folder \"${fold.name}\" and all its contents? This action cannot be undone."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteFolder(fold.id)
+                        folderToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.testTag("confirm_delete_folder_btn")
+                ) {
+                    Text(if (appLanguage == "ru") "Удалить" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { folderToDelete = null }) {
+                    Text(l("cancel", appLanguage))
+                }
+            }
+        )
+    }
 }
 
 // --- DOCUMENT RICH TEXT EDITOR SCREEN ---
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DocumentEditorScreen(
     viewModel: WriterViewModel,
@@ -2485,6 +2613,14 @@ fun DocumentEditorScreen(
 
     // Version snapshots pane
     var isHistoryPanelVisible by remember { mutableStateOf(false) }
+
+    val proLazyListState = rememberLazyListState()
+
+    LaunchedEffect(activeBlockIndex) {
+        if (activeBlockIndex in 0 until blocks.size) {
+            proLazyListState.animateScrollToItem(activeBlockIndex)
+        }
+    }
 
     if (document?.isPlainText == true) {
         // --- BASIC MODE / SIMPLE TXT WRITER ---
@@ -2659,10 +2795,18 @@ fun DocumentEditorScreen(
                 }
             }
         ) { paddingValues ->
+            val isKeyboardVisible = WindowInsets.isImeVisible
+            val bottomPadding = if (isKeyboardVisible) 0.dp else paddingValues.calculateBottomPadding()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(
+                        start = paddingValues.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                        top = paddingValues.calculateTopPadding(),
+                        end = paddingValues.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                        bottom = bottomPadding
+                    )
+                    .imePadding()
             ) {
                 Column(
                     modifier = Modifier
@@ -2850,11 +2994,11 @@ fun DocumentEditorScreen(
                         shape = RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                     ) {
+                        val basicScrollState = rememberScrollState()
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(16.dp)
-                                .verticalScroll(rememberScrollState())
                         ) {
                             BasicTextField(
                                 value = textFileContent,
@@ -2874,6 +3018,8 @@ fun DocumentEditorScreen(
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .verticalScroll(basicScrollState)
+                                    .padding(bottom = 120.dp)
                                     .testTag("basic_text_editor_input")
                             )
 
@@ -3105,206 +3251,217 @@ fun DocumentEditorScreen(
             )
         },
         bottomBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(8.dp)
-            ) {
-                // Live metadata counters
-                Row(
+            val isKeyboardVisible = WindowInsets.isImeVisible
+            if (!isKeyboardVisible) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .background(MaterialTheme.colorScheme.surface)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(8.dp)
                 ) {
-                    Text("${l("words", appLanguage)}: ${metrics.words}  |  ${l("chars", appLanguage)}: ${metrics.characters}", fontSize = 11.sp, color = Color.Gray)
-                    Text("${l("pages", appLanguage)}: ${metrics.pages}  |  ${l("reading_time", appLanguage)}: ~${metrics.readingTimeMinutes} ${l("min", appLanguage)}", fontSize = 11.sp, color = Color.Gray)
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // FORMATTING HORIZONTAL BAR
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val activeBlock = blocks.getOrNull(activeBlockIndex)
-                    
-                    // Group: Undo / Redo
+                    // Live metadata counters
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        IconButton(
-                            onClick = { viewModel.undo() },
-                            enabled = viewModel.canUndo,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Undo,
-                                contentDescription = "Отменить",
-                                modifier = Modifier.size(20.dp),
-                                tint = if (viewModel.canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.redo() },
-                            enabled = viewModel.canRedo,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Redo,
-                                contentDescription = "Вернуть",
-                                modifier = Modifier.size(20.dp),
-                                tint = if (viewModel.canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
-                            )
-                        }
+                        Text("${l("words", appLanguage)}: ${metrics.words}  |  ${l("chars", appLanguage)}: ${metrics.characters}", fontSize = 11.sp, color = Color.Gray)
+                        Text("${l("pages", appLanguage)}: ${metrics.pages}  |  ${l("reading_time", appLanguage)}: ~${metrics.readingTimeMinutes} ${l("min", appLanguage)}", fontSize = 11.sp, color = Color.Gray)
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(24.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    )
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                    // Group: Text formatting
+                    // FORMATTING HORIZONTAL BAR
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val isBold = activeBlock?.style?.isBold == true
-                        IconButton(
-                            onClick = {
-                                if (activeBlock != null) {
-                                    val updated = blocks.mapIndexed { index, b ->
-                                        if (index == activeBlockIndex) b.copy(style = b.style.copy(isBold = !isBold)) else b
+                        val activeBlock = blocks.getOrNull(activeBlockIndex)
+                        
+                        // Group: Undo / Redo
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.undo() },
+                                enabled = viewModel.canUndo,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Undo,
+                                    contentDescription = "Отменить",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = if (viewModel.canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.redo() },
+                                enabled = viewModel.canRedo,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Redo,
+                                    contentDescription = "Вернуть",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = if (viewModel.canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+
+                        // Group: Text formatting
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val isBold = activeBlock?.style?.isBold == true
+                            IconButton(
+                                onClick = {
+                                    if (activeBlock != null) {
+                                        val updated = blocks.mapIndexed { index, b ->
+                                            if (index == activeBlockIndex) b.copy(style = b.style.copy(isBold = !isBold)) else b
+                                        }
+                                        viewModel.updateEditorBlocks(updated)
                                     }
-                                    viewModel.updateEditorBlocks(updated)
-                                }
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .testTag("format_bold")
-                        ) {
-                            Text(
-                                text = "B",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 15.sp,
-                                color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .testTag("format_bold")
+                            ) {
+                                Text(
+                                    text = "B",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 15.sp,
+                                    color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
 
-                        val isItalic = activeBlock?.style?.isItalic == true
-                        IconButton(
-                            onClick = {
-                                if (activeBlock != null) {
-                                    val updated = blocks.mapIndexed { index, b ->
-                                        if (index == activeBlockIndex) b.copy(style = b.style.copy(isItalic = !isItalic)) else b
+                            val isItalic = activeBlock?.style?.isItalic == true
+                            IconButton(
+                                onClick = {
+                                    if (activeBlock != null) {
+                                        val updated = blocks.mapIndexed { index, b ->
+                                            if (index == activeBlockIndex) b.copy(style = b.style.copy(isItalic = !isItalic)) else b
+                                        }
+                                        viewModel.updateEditorBlocks(updated)
                                     }
-                                    viewModel.updateEditorBlocks(updated)
-                                }
-                            },
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .testTag("format_italic")
+                            ) {
+                                Text(
+                                    text = "I",
+                                    fontWeight = FontWeight.Bold,
+                                    fontStyle = FontStyle.Italic,
+                                    fontSize = 15.sp,
+                                    color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            val isUnderline = activeBlock?.style?.isUnderline == true
+                            IconButton(
+                                onClick = {
+                                    if (activeBlock != null) {
+                                      val updated = blocks.mapIndexed { index, b ->
+                                          if (index == activeBlockIndex) b.copy(style = b.style.copy(isUnderline = !isUnderline)) else b
+                                      }
+                                      viewModel.updateEditorBlocks(updated)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            ) {
+                                Text(
+                                    text = "U",
+                                    style = TextStyle(textDecoration = TextDecoration.Underline),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        Box(
                             modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .testTag("format_italic")
-                        ) {
-                            Text(
-                                text = "I",
-                                fontWeight = FontWeight.Bold,
-                                fontStyle = FontStyle.Italic,
-                                fontSize = 15.sp,
-                                color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
 
-                        val isUnderline = activeBlock?.style?.isUnderline == true
-                        IconButton(
-                            onClick = {
-                                if (activeBlock != null) {
-                                  val updated = blocks.mapIndexed { index, b ->
-                                      if (index == activeBlockIndex) b.copy(style = b.style.copy(isUnderline = !isUnderline)) else b
-                                  }
-                                  viewModel.updateEditorBlocks(updated)
-                                }
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                        // Group: Media and Addition actions
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "U",
-                                style = TextStyle(textDecoration = TextDecoration.Underline),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
+                            IconButton(
+                                onClick = { pickerLauncher.launch("image/*") },
+                                modifier = Modifier.size(38.dp).testTag("editor_insert_image")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Image,
+                                    contentDescription = "Вставить картинку",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
 
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(24.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    )
-
-                    // Group: Media and Addition actions
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { pickerLauncher.launch("image/*") },
-                            modifier = Modifier.size(38.dp).testTag("editor_insert_image")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Image,
-                                contentDescription = "Вставить картинку",
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                val list = blocks.toMutableList()
-                                val insertIdx = if (activeBlockIndex in 0 until list.size) activeBlockIndex + 1 else list.size
-                                list.add(insertIdx, EditorBlock(type = "paragraph", text = ""))
-                                viewModel.updateEditorBlocks(list)
-                                activeBlockIndex = insertIdx
-                            },
-                            modifier = Modifier.size(38.dp).testTag("editor_add_block")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.AddCircle,
-                                contentDescription = "Вставить строку",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            IconButton(
+                                onClick = {
+                                    val list = blocks.toMutableList()
+                                    val insertIdx = if (activeBlockIndex in 0 until list.size) activeBlockIndex + 1 else list.size
+                                    list.add(insertIdx, EditorBlock(type = "paragraph", text = ""))
+                                    viewModel.updateEditorBlocks(list)
+                                    activeBlockIndex = insertIdx
+                                },
+                                modifier = Modifier.size(38.dp).testTag("editor_add_block")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddCircle,
+                                    contentDescription = "Вставить строку",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     ) { paddingValues ->
+        val isKeyboardVisible = WindowInsets.isImeVisible
+        val bottomPadding = if (isKeyboardVisible) 0.dp else paddingValues.calculateBottomPadding()
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(
+                    start = paddingValues.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                    top = paddingValues.calculateTopPadding(),
+                    end = paddingValues.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                    bottom = bottomPadding
+                )
+                .imePadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // SEARCH & REPLACE PANEL
@@ -3353,121 +3510,123 @@ fun DocumentEditorScreen(
                 }
 
                 // SCREENPLAY FORMAT PRESETS EXTRAS FOR WRITERS
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val activeBlock = blocks.getOrNull(activeBlockIndex)
-                    
+                if (!isKeyboardVisible) {
                     Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val presets = listOf(
-                            Triple("scene", "Сцена", Icons.Filled.Movie),
-                            Triple("action", "Опис.", Icons.AutoMirrored.Filled.Notes),
-                            Triple("character", "Перс.", Icons.Filled.Person),
-                            Triple("dialogue", "Репл.", Icons.Filled.Chat),
-                            Triple("parenthetical", "Дейс.", Icons.Filled.FormatQuote)
-                        )
-                        presets.forEach { (typeId, label, icon) ->
-                            val isCurr = activeBlock?.type == typeId
-                            ElevatedFilterChip(
-                                selected = isCurr,
-                                onClick = {
-                                    val updated = blocks.mapIndexed { idx, block ->
-                                        if (idx == activeBlockIndex) {
-                                            val formattedText = when (typeId) {
-                                                "scene", "character" -> block.text.uppercase()
-                                                "parenthetical" -> {
-                                                    val trimmed = block.text.trim()
-                                                    if (trimmed.isNotEmpty()) {
-                                                        val inner = trimmed.removePrefix("(").removeSuffix(")").trim()
-                                                        "($inner)"
-                                                    } else ""
-                                                }
-                                                "action", "dialogue" -> {
-                                                    if (block.text.isNotEmpty()) {
-                                                        block.text.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                                                    } else {
-                                                        block.text
+                        val activeBlock = blocks.getOrNull(activeBlockIndex)
+                        
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val presets = listOf(
+                                Triple("scene", "Сцена", Icons.Filled.Movie),
+                                Triple("action", "Опис.", Icons.AutoMirrored.Filled.Notes),
+                                Triple("character", "Перс.", Icons.Filled.Person),
+                                Triple("dialogue", "Репл.", Icons.Filled.Chat),
+                                Triple("parenthetical", "Дейс.", Icons.Filled.FormatQuote)
+                            )
+                            presets.forEach { (typeId, label, icon) ->
+                                val isCurr = activeBlock?.type == typeId
+                                ElevatedFilterChip(
+                                    selected = isCurr,
+                                    onClick = {
+                                        val updated = blocks.mapIndexed { idx, block ->
+                                            if (idx == activeBlockIndex) {
+                                                val formattedText = when (typeId) {
+                                                    "scene", "character" -> block.text.uppercase()
+                                                    "parenthetical" -> {
+                                                        val trimmed = block.text.trim()
+                                                        if (trimmed.isNotEmpty()) {
+                                                            val inner = trimmed.removePrefix("(").removeSuffix(")").trim()
+                                                            "($inner)"
+                                                        } else ""
                                                     }
+                                                    "action", "dialogue" -> {
+                                                        if (block.text.isNotEmpty()) {
+                                                            block.text.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                                        } else {
+                                                            block.text
+                                                        }
+                                                    }
+                                                    else -> block.text
                                                 }
-                                                else -> block.text
-                                            }
-                                            block.copy(
-                                                type = typeId,
-                                                text = formattedText,
-                                                alignment = when (typeId) {
-                                                    "character", "dialogue", "parenthetical" -> "CENTER"
-                                                    "transition" -> "RIGHT"
-                                                    else -> "LEFT"
-                                                }
-                                            )
-                                        } else block
-                                    }
-                                    viewModel.updateEditorBlocks(updated)
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = label,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = if (isCurr) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                },
-                                label = { 
-                                    Text(
-                                        text = label, 
-                                        fontSize = 11.sp, 
-                                        fontWeight = if (isCurr) FontWeight.Bold else FontWeight.Medium
-                                    ) 
-                                },
-                                colors = FilterChipDefaults.elevatedFilterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                ),
-                                shape = RoundedCornerShape(12.dp)
+                                                block.copy(
+                                                    type = typeId,
+                                                    text = formattedText,
+                                                    alignment = when (typeId) {
+                                                        "character", "dialogue", "parenthetical" -> "CENTER"
+                                                        "transition" -> "RIGHT"
+                                                        else -> "LEFT"
+                                                    }
+                                                )
+                                            } else block
+                                        }
+                                        viewModel.updateEditorBlocks(updated)
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = label,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = if (isCurr) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    },
+                                    label = { 
+                                        Text(
+                                            text = label, 
+                                            fontSize = 11.sp, 
+                                            fontWeight = if (isCurr) FontWeight.Bold else FontWeight.Medium
+                                        ) 
+                                    },
+                                    colors = FilterChipDefaults.elevatedFilterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(28.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+
+                        IconButton(
+                            onClick = {
+                                val list = blocks.toMutableList()
+                                if (activeBlockIndex in 0 until list.size) {
+                                    list.removeAt(activeBlockIndex)
+                                    if (list.isEmpty()) list.add(EditorBlock(type = "paragraph", text = ""))
+                                    activeBlockIndex = Math.max(0, activeBlockIndex - 1)
+                                    viewModel.updateEditorBlocks(list)
+                                }
+                            },
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete, 
+                                contentDescription = "Стереть блок", 
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(28.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    )
-
-                    IconButton(
-                        onClick = {
-                            val list = blocks.toMutableList()
-                            if (activeBlockIndex in 0 until list.size) {
-                                list.removeAt(activeBlockIndex)
-                                if (list.isEmpty()) list.add(EditorBlock(type = "paragraph", text = ""))
-                                activeBlockIndex = Math.max(0, activeBlockIndex - 1)
-                                viewModel.updateEditorBlocks(list)
-                            }
-                        },
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete, 
-                            contentDescription = "Стереть блок", 
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
                 }
 
@@ -3478,7 +3637,8 @@ fun DocumentEditorScreen(
                         .weight(1f)
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    state = rememberLazyListState()
+                    contentPadding = PaddingValues(bottom = 120.dp),
+                    state = proLazyListState
                 ) {
                     itemsIndexed(blocks) { index, block ->
                         val isSelected = activeBlockIndex == index
@@ -3622,7 +3782,20 @@ fun DocumentEditorScreen(
                                 Box(modifier = Modifier.padding(calculatedPadding)) {
                                     BasicTextField(
                                         value = block.text,
-                                        onValueChange = { newVal ->
+                                        onValueChange = label@{ newVal ->
+                                             if (newVal.contains("\n")) {
+                                                 val parts = newVal.split("\n", limit = 2)
+                                                 val firstPart = parts.getOrNull(0) ?: ""
+                                                 val secondPart = parts.getOrNull(1) ?: ""
+                                                 val list = blocks.toMutableList()
+                                                 list[index] = block.copy(text = firstPart)
+                                                 val nextType = if (block.type == "character") "dialogue" else "paragraph"
+                                                 val newBlock = EditorBlock(type = nextType, text = secondPart)
+                                                 list.add(index + 1, newBlock)
+                                                 viewModel.updateEditorBlocks(list)
+                                                 activeBlockIndex = index + 1
+                                                 return@label
+                                             }
                                             var updatedValue = if (isTranslitEnabled && newVal.length > block.text.length) {
                                                 val addedText = newVal.substring(block.text.length)
                                                 block.text + transliterateEnToRu(addedText)
@@ -3655,7 +3828,7 @@ fun DocumentEditorScreen(
                                         textStyle = textStyle,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .testTag("editor_text_field_$index")
+                                            .onFocusChanged { if (it.isFocused) { activeBlockIndex = index } }.testTag("editor_text_field_$index")
                                     )
                                     if (block.text.isEmpty()) {
                                         Text(
@@ -3674,6 +3847,302 @@ fun DocumentEditorScreen(
                             }
                         }
                     }
+                }
+                
+                // Add the widgets at the bottom of Column if keyboard is visible!
+                if (isKeyboardVisible) {
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 1. Screenplay Format Presets (Scrollable chips)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val activeBlock = blocks.getOrNull(activeBlockIndex)
+                        
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val presets = listOf(
+                                Triple("scene", "Сцена", Icons.Filled.Movie),
+                                Triple("action", "Опис.", Icons.AutoMirrored.Filled.Notes),
+                                Triple("character", "Перс.", Icons.Filled.Person),
+                                Triple("dialogue", "Репл.", Icons.Filled.Chat),
+                                Triple("parenthetical", "Дейс.", Icons.Filled.FormatQuote)
+                            )
+                            presets.forEach { (typeId, label, icon) ->
+                                val isCurr = activeBlock?.type == typeId
+                                ElevatedFilterChip(
+                                    selected = isCurr,
+                                    onClick = {
+                                        val updated = blocks.mapIndexed { idx, block ->
+                                            if (idx == activeBlockIndex) {
+                                                val formattedText = when (typeId) {
+                                                    "scene", "character" -> block.text.uppercase()
+                                                    "parenthetical" -> {
+                                                        val trimmed = block.text.trim()
+                                                        if (trimmed.isNotEmpty()) {
+                                                            val inner = trimmed.removePrefix("(").removeSuffix(")").trim()
+                                                            "($inner)"
+                                                        } else ""
+                                                    }
+                                                    "action", "dialogue" -> {
+                                                        if (block.text.isNotEmpty()) {
+                                                            block.text.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                                        } else {
+                                                            block.text
+                                                        }
+                                                    }
+                                                    else -> block.text
+                                                }
+                                                block.copy(
+                                                    type = typeId,
+                                                    text = formattedText,
+                                                    alignment = when (typeId) {
+                                                        "character", "dialogue", "parenthetical" -> "CENTER"
+                                                        "transition" -> "RIGHT"
+                                                        else -> "LEFT"
+                                                    }
+                                                )
+                                            } else block
+                                        }
+                                        viewModel.updateEditorBlocks(updated)
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = label,
+                                            modifier = Modifier.size(12.dp),
+                                            tint = if (isCurr) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    },
+                                    label = { 
+                                        Text(
+                                            text = label, 
+                                            fontSize = 10.sp, 
+                                            fontWeight = if (isCurr) FontWeight.Bold else FontWeight.Medium
+                                        ) 
+                                    },
+                                    colors = FilterChipDefaults.elevatedFilterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+
+                        IconButton(
+                            onClick = {
+                                val list = blocks.toMutableList()
+                                if (activeBlockIndex in 0 until list.size) {
+                                    list.removeAt(activeBlockIndex)
+                                    if (list.isEmpty()) list.add(EditorBlock(type = "paragraph", text = ""))
+                                    activeBlockIndex = Math.max(0, activeBlockIndex - 1)
+                                    viewModel.updateEditorBlocks(list)
+                                }
+                            },
+                            modifier = Modifier
+                                .padding(horizontal = 6.dp)
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete, 
+                                contentDescription = "Стереть блок", 
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // 2. Formatting Toolbar (Undo/Redo, B, I, U, Image, Add Block)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val activeBlock = blocks.getOrNull(activeBlockIndex)
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.undo() },
+                                enabled = viewModel.canUndo,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Undo,
+                                    contentDescription = "Отменить",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (viewModel.canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.redo() },
+                                enabled = viewModel.canRedo,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Redo,
+                                    contentDescription = "Вернуть",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (viewModel.canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(20.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val isBold = activeBlock?.style?.isBold == true
+                            IconButton(
+                                onClick = {
+                                    if (activeBlock != null) {
+                                        val updated = blocks.mapIndexed { index, b ->
+                                            if (index == activeBlockIndex) b.copy(style = b.style.copy(isBold = !isBold)) else b
+                                        }
+                                        viewModel.updateEditorBlocks(updated)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            ) {
+                                Text(
+                                    text = "B",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 14.sp,
+                                    color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            val isItalic = activeBlock?.style?.isItalic == true
+                            IconButton(
+                                onClick = {
+                                    if (activeBlock != null) {
+                                        val updated = blocks.mapIndexed { index, b ->
+                                            if (index == activeBlockIndex) b.copy(style = b.style.copy(isItalic = !isItalic)) else b
+                                        }
+                                        viewModel.updateEditorBlocks(updated)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            ) {
+                                Text(
+                                    text = "I",
+                                    fontWeight = FontWeight.Bold,
+                                    fontStyle = FontStyle.Italic,
+                                    fontSize = 14.sp,
+                                    color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            val isUnderline = activeBlock?.style?.isUnderline == true
+                            IconButton(
+                                onClick = {
+                                    if (activeBlock != null) {
+                                      val updated = blocks.mapIndexed { index, b ->
+                                          if (index == activeBlockIndex) b.copy(style = b.style.copy(isUnderline = !isUnderline)) else b
+                                      }
+                                      viewModel.updateEditorBlocks(updated)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            ) {
+                                Text(
+                                    text = "U",
+                                    style = TextStyle(textDecoration = TextDecoration.Underline),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(20.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { pickerLauncher.launch("image/*") },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Image,
+                                    contentDescription = "Вставить картинку",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val list = blocks.toMutableList()
+                                    val insertIdx = if (activeBlockIndex in 0 until list.size) activeBlockIndex + 1 else list.size
+                                    list.add(insertIdx, EditorBlock(type = "paragraph", text = ""))
+                                    viewModel.updateEditorBlocks(list)
+                                    activeBlockIndex = insertIdx
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddCircle,
+                                    contentDescription = "Вставить строку",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
             }
 
