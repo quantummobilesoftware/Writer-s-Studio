@@ -410,15 +410,37 @@ class WriterRepository(private val db: WriterDatabase) {
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
                     val folderIdRaw = obj.optLong("folderId", -1L)
+                    val contentBlocks = obj.getString("contentBlocksJson")
+                    val isPlainTextImported = if (obj.has("isPlainText")) {
+                        obj.optBoolean("isPlainText", false)
+                    } else {
+                        // Older backup file fallback: auto-detect if it was a plain text document
+                        try {
+                            val blocksArray = org.json.JSONArray(contentBlocks)
+                            if (blocksArray.length() <= 1) {
+                                if (blocksArray.length() == 0) {
+                                    true
+                                } else {
+                                    val firstBlock = blocksArray.getJSONObject(0)
+                                    val blockType = firstBlock.optString("type", "paragraph")
+                                    blockType == "paragraph"
+                                }
+                            } else {
+                                false
+                            }
+                        } catch (e: Exception) {
+                            false
+                        }
+                    }
                     val d = Document(
                         id = obj.getLong("id"),
                         projectId = obj.getLong("projectId"),
                         folderId = if (folderIdRaw == -1L) null else folderIdRaw,
                         title = obj.getString("title"),
-                        contentBlocksJson = obj.getString("contentBlocksJson"),
+                        contentBlocksJson = contentBlocks,
                         sortOrder = obj.optInt("sortOrder", 0),
                         passwordHash = obj.optString("passwordHash").ifEmpty { null },
-                        isPlainText = obj.optBoolean("isPlainText", false),
+                        isPlainText = isPlainTextImported,
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
                     )

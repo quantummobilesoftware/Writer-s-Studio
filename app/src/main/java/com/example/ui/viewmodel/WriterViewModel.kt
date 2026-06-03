@@ -586,8 +586,23 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                     else -> FormatExporter.importFromTxt(inputStream)
                 }
                 
-                val filename = "Импорт ${System.currentTimeMillis()}"
-                repository.createDocument(project.id, folder?.id, filename, blocks)
+                var filename = "Импорт ${System.currentTimeMillis()}"
+                try {
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameCol = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameCol != -1 && cursor.moveToFirst()) {
+                            val displayName = cursor.getString(nameCol)
+                            if (!displayName.isNullOrBlank()) {
+                                filename = displayName.substringBeforeLast(".")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                
+                val isPlainText = fileExtension.uppercase() == "TXT" || fileExtension.uppercase() == "TEXT"
+                repository.createDocument(project.id, folder?.id, filename, blocks, isPlainText = isPlainText)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
