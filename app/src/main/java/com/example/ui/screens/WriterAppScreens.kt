@@ -9,6 +9,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.composed
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -17,6 +24,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -76,6 +85,57 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
+
+fun Modifier.bounceClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+): Modifier = composed {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.93f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "bounceScale"
+    )
+    this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .clickable(
+            interactionSource = interactionSource,
+            indication = androidx.compose.foundation.LocalIndication.current,
+            enabled = enabled,
+            onClick = onClick
+        )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+fun Modifier.bounceCombinedClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
+): Modifier = composed {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "bounceScale"
+    )
+    this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .combinedClickable(
+            interactionSource = interactionSource,
+            indication = androidx.compose.foundation.LocalIndication.current,
+            enabled = enabled,
+            onClick = onClick,
+            onLongClick = onLongClick
+        )
+}
 
 // --- Theme Tones ---
 object WriterThemeColors {
@@ -323,52 +383,98 @@ fun NavigationScaffold(
         }
     }
 
+    val screenHierarchy = when {
+        isPrompterMode.value && activeDoc != null -> 4
+        activeDoc != null -> 3
+        selectedProj != null -> 2
+        else -> 1
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        if (isPrompterMode.value && activeDoc != null) {
-            PrompterScreen(viewModel = viewModel, onClose = { isPrompterMode.value = false })
-        } else if (activeDoc != null) {
-            DocumentEditorScreen(
-                viewModel = viewModel,
-                onBack = { viewModel.selectDocument(null) },
-                onLaunchPrompter = { isPrompterMode.value = true }
-            )
-        } else if (selectedProj != null) {
-            ProjectWorkspaceScreen(viewModel = viewModel, onBack = { viewModel.selectProject(null) })
-        } else {
-            Scaffold(
-                bottomBar = {
-                    NavigationBar(
-                        windowInsets = WindowInsets.navigationBars
-                    ) {
-                        NavigationBarItem(
-                            selected = activeTab == "PROJECTS",
-                            onClick = { selectTab("PROJECTS") },
-                            icon = { Icon(Icons.Outlined.Book, l("cabinet", appLanguage)) },
-                            label = { Text(l("cabinet", appLanguage)) },
-                            modifier = Modifier.testTag("nav_tab_projects")
-                        )
-                        NavigationBarItem(
-                            selected = activeTab == "STATS",
-                            onClick = { selectTab("STATS") },
-                            icon = { Icon(Icons.Outlined.BarChart, l("progress", appLanguage)) },
-                            label = { Text(l("progress", appLanguage)) },
-                            modifier = Modifier.testTag("nav_tab_stats")
-                        )
-                        NavigationBarItem(
-                            selected = activeTab == "SETTINGS",
-                            onClick = { selectTab("SETTINGS") },
-                            icon = { Icon(Icons.Outlined.Settings, l("options", appLanguage)) },
-                            label = { Text(l("options", appLanguage)) },
-                            modifier = Modifier.testTag("nav_tab_settings")
-                        )
-                    }
+        AnimatedContent(
+            targetState = screenHierarchy,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInHorizontally(initialOffsetX = { it }) + fadeIn(animationSpec = tween(300)))
+                        .togetherWith(slideOutHorizontally(targetOffsetX = { -it / 3 }) + fadeOut(animationSpec = tween(300)))
+                } else {
+                    (slideInHorizontally(initialOffsetX = { -it / 3 }) + fadeIn(animationSpec = tween(300)))
+                        .togetherWith(slideOutHorizontally(targetOffsetX = { it }) + fadeOut(animationSpec = tween(300)))
                 }
-            ) { innerPadding ->
-                Box(modifier = Modifier.padding(innerPadding)) {
-                    when (activeTab) {
-                        "PROJECTS" -> ProjectsDashboardScreen(viewModel)
-                        "STATS" -> WriterStatsScreen(viewModel)
-                        "SETTINGS" -> AppSettingsScreen(viewModel, currTheme, onThemeChange)
+            },
+            label = "ScreenTransition"
+        ) { targetHierarchy ->
+            when (targetHierarchy) {
+                4 -> {
+                    PrompterScreen(viewModel = viewModel, onClose = { isPrompterMode.value = false })
+                }
+                3 -> {
+                    DocumentEditorScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.selectDocument(null) },
+                        onLaunchPrompter = { isPrompterMode.value = true }
+                    )
+                }
+                2 -> {
+                    ProjectWorkspaceScreen(viewModel = viewModel, onBack = { viewModel.selectProject(null) })
+                }
+                else -> {
+                    Scaffold(
+                        bottomBar = {
+                            NavigationBar(
+                                windowInsets = WindowInsets.navigationBars
+                            ) {
+                                NavigationBarItem(
+                                    selected = activeTab == "PROJECTS",
+                                    onClick = { selectTab("PROJECTS") },
+                                    icon = { Icon(Icons.Outlined.Book, l("cabinet", appLanguage)) },
+                                    label = { Text(l("cabinet", appLanguage)) },
+                                    modifier = Modifier.testTag("nav_tab_projects")
+                                )
+                                NavigationBarItem(
+                                    selected = activeTab == "STATS",
+                                    onClick = { selectTab("STATS") },
+                                    icon = { Icon(Icons.Outlined.BarChart, l("progress", appLanguage)) },
+                                    label = { Text(l("progress", appLanguage)) },
+                                    modifier = Modifier.testTag("nav_tab_stats")
+                                )
+                                NavigationBarItem(
+                                    selected = activeTab == "SETTINGS",
+                                    onClick = { selectTab("SETTINGS") },
+                                    icon = { Icon(Icons.Outlined.Settings, l("options", appLanguage)) },
+                                    label = { Text(l("options", appLanguage)) },
+                                    modifier = Modifier.testTag("nav_tab_settings")
+                                )
+                            }
+                        }
+                    ) { innerPadding ->
+                        Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                            val tabIndex = when (activeTab) {
+                                "PROJECTS" -> 1
+                                "STATS" -> 2
+                                else -> 3
+                            }
+                            AnimatedContent(
+                                targetState = tabIndex,
+                                transitionSpec = {
+                                    if (targetState > initialState) {
+                                        (slideInHorizontally(initialOffsetX = { it }) + fadeIn(animationSpec = tween(300)))
+                                            .togetherWith(slideOutHorizontally(targetOffsetX = { -it }) + fadeOut(animationSpec = tween(300)))
+                                    } else {
+                                        (slideInHorizontally(initialOffsetX = { -it }) + fadeIn(animationSpec = tween(300)))
+                                            .togetherWith(slideOutHorizontally(targetOffsetX = { it }) + fadeOut(animationSpec = tween(300)))
+                                    }
+                                },
+                                label = "TabTransition",
+                                modifier = Modifier.fillMaxSize()
+                            ) { targetIndex ->
+                                when (targetIndex) {
+                                    1 -> ProjectsDashboardScreen(viewModel)
+                                    2 -> WriterStatsScreen(viewModel)
+                                    else -> AppSettingsScreen(viewModel, currTheme, onThemeChange)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1778,7 +1884,7 @@ fun ProjectItemRow(
     ) {
         Row(
             modifier = Modifier
-                .combinedClickable(
+                .bounceCombinedClickable(
                     onClick = onExplore,
                     onLongClick = onLongClick
                 )
@@ -2794,6 +2900,8 @@ fun DocumentEditorScreen(
     val document by viewModel.activeDocument.collectAsStateWithLifecycle()
     val blocks by viewModel.editorBlocks.collectAsStateWithLifecycle()
     val history by viewModel.activeDocumentHistory.collectAsStateWithLifecycle()
+    val canUndo by viewModel.canUndo.collectAsStateWithLifecycle()
+    val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
 
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
     var isTranslitEnabled by remember { mutableStateOf(false) }
@@ -3269,25 +3377,25 @@ fun DocumentEditorScreen(
                     ) {
                         IconButton(
                             onClick = { viewModel.undo() },
-                            enabled = viewModel.canUndo,
+                            enabled = canUndo,
                             modifier = Modifier.size(34.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Undo,
                                 contentDescription = "Undo",
-                                tint = if (viewModel.canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.4f),
+                                tint = if (canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
                         IconButton(
                             onClick = { viewModel.redo() },
-                            enabled = viewModel.canRedo,
+                            enabled = canRedo,
                             modifier = Modifier.size(34.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Redo,
                                 contentDescription = "Redo",
-                                tint = if (viewModel.canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.4f),
+                                tint = if (canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -3515,27 +3623,27 @@ fun DocumentEditorScreen(
                         ) {
                             IconButton(
                                 onClick = { viewModel.undo() },
-                                enabled = viewModel.canUndo,
+                                enabled = canUndo,
                                 modifier = Modifier.size(38.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Undo,
                                     contentDescription = "Отменить",
                                     modifier = Modifier.size(20.dp),
-                                    tint = if (viewModel.canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                    tint = if (canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
                                 )
                             }
 
                             IconButton(
                                 onClick = { viewModel.redo() },
-                                enabled = viewModel.canRedo,
+                                enabled = canRedo,
                                 modifier = Modifier.size(38.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Redo,
                                     contentDescription = "Вернуть",
                                     modifier = Modifier.size(20.dp),
-                                    tint = if (viewModel.canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                    tint = if (canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
                                 )
                             }
                         }
@@ -3564,16 +3672,22 @@ fun DocumentEditorScreen(
                                 },
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                                     .testTag("format_bold")
                             ) {
-                                Text(
-                                    text = "B",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 15.sp,
-                                    color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "B",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 15.sp,
+                                        color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
 
                             val isItalic = activeBlock?.style?.isItalic == true
@@ -3588,17 +3702,23 @@ fun DocumentEditorScreen(
                                 },
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                                     .testTag("format_italic")
                             ) {
-                                Text(
-                                    text = "I",
-                                    fontWeight = FontWeight.Bold,
-                                    fontStyle = FontStyle.Italic,
-                                    fontSize = 15.sp,
-                                    color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "I",
+                                        fontWeight = FontWeight.Bold,
+                                        fontStyle = FontStyle.Italic,
+                                        fontSize = 15.sp,
+                                        color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
 
                             val isUnderline = activeBlock?.style?.isUnderline == true
@@ -3613,16 +3733,22 @@ fun DocumentEditorScreen(
                                 },
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             ) {
-                                Text(
-                                    text = "U",
-                                    style = TextStyle(textDecoration = TextDecoration.Underline),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "U",
+                                        style = TextStyle(textDecoration = TextDecoration.Underline),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
 
@@ -4250,27 +4376,27 @@ fun DocumentEditorScreen(
                         ) {
                             IconButton(
                                 onClick = { viewModel.undo() },
-                                enabled = viewModel.canUndo,
+                                enabled = canUndo,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Undo,
                                     contentDescription = "Отменить",
                                     modifier = Modifier.size(18.dp),
-                                    tint = if (viewModel.canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                    tint = if (canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
                                 )
                             }
 
                             IconButton(
                                 onClick = { viewModel.redo() },
-                                enabled = viewModel.canRedo,
+                                enabled = canRedo,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Redo,
                                     contentDescription = "Вернуть",
                                     modifier = Modifier.size(18.dp),
-                                    tint = if (viewModel.canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                    tint = if (canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
                                 )
                             }
                         }
@@ -4298,15 +4424,21 @@ fun DocumentEditorScreen(
                                 },
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             ) {
-                                Text(
-                                    text = "B",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 14.sp,
-                                    color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "B",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 14.sp,
+                                        color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
 
                             val isItalic = activeBlock?.style?.isItalic == true
@@ -4321,16 +4453,22 @@ fun DocumentEditorScreen(
                                 },
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             ) {
-                                Text(
-                                    text = "I",
-                                    fontWeight = FontWeight.Bold,
-                                    fontStyle = FontStyle.Italic,
-                                    fontSize = 14.sp,
-                                    color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "I",
+                                        fontWeight = FontWeight.Bold,
+                                        fontStyle = FontStyle.Italic,
+                                        fontSize = 14.sp,
+                                        color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
 
                             val isUnderline = activeBlock?.style?.isUnderline == true
@@ -4345,16 +4483,22 @@ fun DocumentEditorScreen(
                                 },
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             ) {
-                                Text(
-                                    text = "U",
-                                    style = TextStyle(textDecoration = TextDecoration.Underline),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "U",
+                                        style = TextStyle(textDecoration = TextDecoration.Underline),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
 
@@ -4481,6 +4625,8 @@ fun PrompterScreen(viewModel: WriterViewModel, onClose: () -> Unit) {
     var isScrolling by remember { mutableStateOf(false) }
     var textFontSize by remember { mutableStateOf(26f) }
     var prompterFont by remember { mutableStateOf("SERIF") } // SERIF, SANS_SERIF, MONO
+    var isSettingsCollapsed by remember { mutableStateOf(true) }
+    var dragOffset by remember { mutableStateOf(0f) }
 
     val prompterTheme = remember { mutableStateOf("DARK") } // DARK (Black-White), AMBER (Black-Amber), BRIGHT (White-Black)
 
@@ -4559,92 +4705,363 @@ fun PrompterScreen(viewModel: WriterViewModel, onClose: () -> Unit) {
             }
         }
 
-        // CONTROL OVERLAY CONTAINER (Semi-transparent top and bottom buttons)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.85f))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Stats Row: Timer Remaining Speech
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        if (isSettingsCollapsed) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .navigationBarsPadding(),
+                shape = RoundedCornerShape(percent = 50),
+                color = if (prompterTheme.value == "BRIGHT") {
+                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)
+                } else {
+                    Color(0xFF161618).copy(alpha = 0.9f)
+                },
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
             ) {
-                Text("${l("speech_live", appLanguage)}${remainingTimeMin}${l("minutes_left", appLanguage)}", color = Color.LightGray, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { isMirrorH = !isMirrorH },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isMirrorH) WriterThemeColors.PrimaryAmber else Color.DarkGray),
-                        modifier = Modifier.testTag("prompter_mirror_h")
-                    ) { Text(l("mirror_h", appLanguage), fontSize = 10.sp) }
-                    Button(
-                        onClick = { isMirrorV = !isMirrorV },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isMirrorV) WriterThemeColors.PrimaryAmber else Color.DarkGray)
-                    ) { Text(l("mirror_v", appLanguage), fontSize = 10.sp) }
-                }
-            }
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // "Settings" Button to expand settings back
+                    IconButton(
+                        onClick = { isSettingsCollapsed = false },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = if (appLanguage == "ru") "Настройки" else "Settings",
+                            tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
 
-            // Speed Slider & Font Size
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Filled.Speed, l("speed", appLanguage), tint = Color.LightGray)
-                Spacer(modifier = Modifier.width(8.dp))
-                Slider(
-                    value = scrollSpeed,
-                    onValueChange = { scrollSpeed = it },
-                    valueRange = 1f..50f,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("${l("speed", appLanguage)}: ${scrollSpeed.toInt()}", color = Color.White, fontSize = 12.sp)
-            }
-
-            // Font & Theme Options
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(l("prompter_theme", appLanguage), color = Color.LightGray, fontSize = 11.sp)
-                listOf(
-                    "DARK" to l("theme_dark_prompter", appLanguage),
-                    "AMBER" to l("theme_amber_prompter", appLanguage),
-                    "BRIGHT" to l("theme_bright_prompter", appLanguage)
-                ).forEach { (themeId, label) ->
-                    val isSel = prompterTheme.value == themeId
-                    Text(
-                        text = label,
-                        color = if (isSel) WriterThemeColors.PrimaryAmber else Color.Gray,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                    // Play/Pause circular button (Start)
+                    FilledIconButton(
+                        onClick = { isScrolling = !isScrolling },
                         modifier = Modifier
-                            .clickable { prompterTheme.value = themeId }
-                            .padding(horizontal = 4.dp)
-                    )
+                            .size(48.dp)
+                            .testTag("prompter_play_pause"),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isScrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = l("prompter", appLanguage),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // Exit IconButton
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = l("exit", appLanguage),
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                Icon(
-                    imageVector = if (isScrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = l("prompter", appLanguage),
-                    tint = Color.White,
+            }
+        } else {
+            // CONTROL OVERLAY CONTAINER (Material 3 Styled Bottom Sheet style overlay)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding(),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                color = if (prompterTheme.value == "BRIGHT") {
+                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f)
+                } else {
+                    Color(0xFF161618).copy(alpha = 0.95f)
+                },
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
+            ) {
+                Column(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clickable { isScrolling = !isScrolling }
-                        .testTag("prompter_play_pause")
-                )
+                        .fillMaxWidth()
+                        .pointerInput(Unit) {
+                            var accumulatedDrag = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { accumulatedDrag = 0f },
+                                onDragEnd = { accumulatedDrag = 0f },
+                                onDragCancel = { accumulatedDrag = 0f },
+                                onVerticalDrag = { change, dragAmount ->
+                                    accumulatedDrag += dragAmount
+                                    if (accumulatedDrag > 45f) { // Swipe down trigger
+                                        isSettingsCollapsed = true
+                                        accumulatedDrag = 0f
+                                    }
+                                }
+                            )
+                        }
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Tiny drag handle and swipe-to-collapse row
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp, 4.dp)
+                                .background(
+                                    color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray).copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(2.dp)
+                                )
+                        )
+                        
+                        Text(
+                            text = if (appLanguage == "ru") "Проведите пальцем вниз, чтобы свернуть настройки" else "Swipe down to collapse settings",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray).copy(alpha = 0.6f)
+                        )
+                    }
 
-                Spacer(modifier = Modifier.width(24.dp))
+                    // Row 1: Estimated Time, Words & Play/Pause Circular FAB
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "${l("speech_live", appLanguage)}${remainingTimeMin}${l("minutes_left", appLanguage)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray
+                            )
+                            Text(
+                                text = if (appLanguage == "ru") "Всего: $wordsCount слов(а)" else "Total: $wordsCount words",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray
+                            )
+                        }
 
-                Button(onClick = onClose, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
-                    Text(l("exit", appLanguage))
+                        // Floating Action Indicator Play / Pause
+                        FilledIconButton(
+                            onClick = { isScrolling = !isScrolling },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("prompter_play_pause"),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (isScrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = l("prompter", appLanguage),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Divider(
+                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.4f),
+                        thickness = 0.5.dp
+                    )
+
+                    // Row 2: Contrast & Theme Selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = l("prompter_theme", appLanguage),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                            modifier = Modifier.width(64.dp)
+                        )
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                "DARK" to l("theme_dark_prompter", appLanguage),
+                                "AMBER" to l("theme_amber_prompter", appLanguage),
+                                "BRIGHT" to l("theme_bright_prompter", appLanguage)
+                            ).forEach { (themeId, label) ->
+                                val isSel = prompterTheme.value == themeId
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { prompterTheme.value = themeId },
+                                    label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
+                                )
+                            }
+                        }
+                    }
+
+                    // Row 3: Font Selection
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (appLanguage == "ru") "Шрифт:" else "Font:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                            modifier = Modifier.width(64.dp)
+                        )
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                "SERIF" to (if (appLanguage == "ru") "Засечки" else "Serif"),
+                                "SANS_SERIF" to (if (appLanguage == "ru") "Без засечек" else "Sans"),
+                                "MONO" to (if (appLanguage == "ru") "Моно" else "Mono")
+                            ).forEach { (fontId, label) ->
+                                val isSel = prompterFont == fontId
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { prompterFont = fontId },
+                                    label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
+                                )
+                            }
+                        }
+                    }
+
+                    Divider(
+                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.3f),
+                        thickness = 0.5.dp
+                    )
+
+                    // Row 4: Speed Slider Control
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speed,
+                            contentDescription = l("speed", appLanguage),
+                            tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (appLanguage == "ru") "Скорость" else "Speed",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
+                            modifier = Modifier.width(84.dp)
+                        )
+                        Slider(
+                            value = scrollSpeed,
+                            onValueChange = { scrollSpeed = it },
+                            valueRange = 1f..50f,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "${scrollSpeed.toInt()}",
+                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(28.dp)
+                        )
+                    }
+
+                    // Row 5: Text Size Slider Control
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TextFields,
+                            contentDescription = "Text Size",
+                            tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (appLanguage == "ru") "Размер" else "Text Size",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
+                            modifier = Modifier.width(84.dp)
+                        )
+                        Slider(
+                            value = textFontSize,
+                            onValueChange = { textFontSize = it },
+                            valueRange = 16f..72f,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "${textFontSize.toInt()}sp",
+                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(44.dp)
+                        )
+                    }
+
+                    Divider(
+                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.3f),
+                        thickness = 0.5.dp
+                    )
+
+                    // Row 6: Mirror Controls & Close Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (appLanguage == "ru") "Зеркало:" else "Mirror:",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray
+                            )
+                            
+                            FilterChip(
+                                selected = isMirrorH,
+                                onClick = { isMirrorH = !isMirrorH },
+                                label = { Text(l("mirror_h", appLanguage), fontSize = 11.sp) },
+                                modifier = Modifier.testTag("prompter_mirror_h")
+                            )
+
+                            FilterChip(
+                                selected = isMirrorV,
+                                onClick = { isMirrorV = !isMirrorV },
+                                label = { Text(l("mirror_v", appLanguage), fontSize = 11.sp) }
+                            )
+                        }
+
+                        Button(
+                            onClick = onClose,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.ExitToApp, "Exit", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(l("exit", appLanguage), fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }

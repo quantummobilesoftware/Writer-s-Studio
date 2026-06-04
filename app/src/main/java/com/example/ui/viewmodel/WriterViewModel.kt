@@ -451,6 +451,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         _activeDocument.value = document
         undoStack.clear()
         redoStack.clear()
+        updateCanUndoRedo()
         if (document == null) {
             _editorBlocks.value = emptyList()
             _activePrompterSettings.value = null
@@ -505,37 +506,76 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         }
     }
 
+    private var activeTypingUndoState: List<EditorBlock>? = null
+    private var typingUndoJob: Job? = null
+
     fun updateEditorBlocks(newBlocks: List<EditorBlock>, updateHistory: Boolean = true) {
         if (updateHistory) {
+            typingUndoJob?.cancel()
+            typingUndoJob = null
+            activeTypingUndoState = null
+
             // Keep maximum 50 levels of Undo/Redo to limit memory footprint
             if (undoStack.size >= 50) undoStack.removeAt(0)
             undoStack.add(_editorBlocks.value.toList())
             redoStack.clear()
+        } else {
+            // Coalesced typing undo logic
+            if (activeTypingUndoState == null) {
+                activeTypingUndoState = _editorBlocks.value.toList()
+                if (undoStack.size >= 50) undoStack.removeAt(0)
+                undoStack.add(_editorBlocks.value.toList())
+                redoStack.clear()
+            }
+            typingUndoJob?.cancel()
+            typingUndoJob = viewModelScope.launch {
+                delay(1200) // Finish typing session after 1.2s of inactivity
+                activeTypingUndoState = null
+            }
         }
         _editorBlocks.value = newBlocks
         triggerAutosave()
+        updateCanUndoRedo()
     }
 
     fun undo() {
+        typingUndoJob?.cancel()
+        typingUndoJob = null
+        activeTypingUndoState = null
+
         if (undoStack.isNotEmpty()) {
             val previousState = undoStack.removeAt(undoStack.size - 1)
             redoStack.add(_editorBlocks.value.toList())
             _editorBlocks.value = previousState
             saveActiveDocumentImmediate()
+            updateCanUndoRedo()
         }
     }
 
     fun redo() {
+        typingUndoJob?.cancel()
+        typingUndoJob = null
+        activeTypingUndoState = null
+
         if (redoStack.isNotEmpty()) {
             val nextState = redoStack.removeAt(redoStack.size - 1)
             undoStack.add(_editorBlocks.value.toList())
             _editorBlocks.value = nextState
             saveActiveDocumentImmediate()
+            updateCanUndoRedo()
         }
     }
 
-    val canUndo: Boolean get() = undoStack.isNotEmpty()
-    val canRedo: Boolean get() = redoStack.isNotEmpty()
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
+
+    private val _canRedo = MutableStateFlow(false)
+    val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    private fun updateCanUndoRedo() {
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = redoStack.isNotEmpty()
+    }
 
     private fun triggerAutosave() {
         autosaveJob?.cancel()
