@@ -523,4 +523,8 @@ class WriterRepository(private val db: WriterDatabase) {
             false
         }
     }
+
+    suspend fun getAllProjectsDirectList(): List<WorkspaceProject> = projectDao.getAllProjectsDirect()
+    suspend fun getAllFoldersDirectList(): List<Folder> = folderDao.getAllFoldersDirect()
+    suspend fun getAllDocumentsDirectList(): List<Document> = documentDao.getAllDocumentsDirect()
 }

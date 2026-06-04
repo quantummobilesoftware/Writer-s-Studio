@@ -12,11 +12,16 @@ import com.example.util.FormatExporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import android.os.Environment
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
@@ -746,6 +751,160 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         viewModelScope.launch {
             val result = repository.importBackupJson(backupText)
             onComplete(result)
+        }
+    }
+
+    fun syncProjectsToInternalMemory(context: Context, onComplete: (Boolean, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Get all projects, folders, documents
+                val projects = repository.getAllProjectsDirectList()
+                val folders = repository.getAllFoldersDirectList()
+                val documents = repository.getAllDocumentsDirectList()
+
+                // 2. Define root folder inside standard public Documents folder
+                var rootDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "WriterStudioProjects")
+                var isWritable = false
+                try {
+                    if (!rootDir.exists()) {
+                        rootDir.mkdirs()
+                    }
+                    val testFile = File(rootDir, ".write_test")
+                    testFile.writeText("test")
+                    testFile.delete()
+                    isWritable = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                // Fallback directory in external storage
+                if (!isWritable) {
+                    rootDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "WriterStudioProjects")
+                    if (!rootDir.exists()) {
+                        rootDir.mkdirs()
+                    }
+                }
+
+                // Clean-up previous export
+                if (rootDir.exists()) {
+                    rootDir.deleteRecursively()
+                }
+                rootDir.mkdirs()
+
+                // 3. Subcategories based on active, archived, or trashed states
+                val lang = appLanguage.value
+                val activeDirName = if (lang == "ru") "Активные" else "Active"
+                val archiveDirName = if (lang == "ru") "Архив" else "Archive"
+                val trashDirName = if (lang == "ru") "Корзина" else "Trash"
+
+                val activeDir = File(rootDir, activeDirName).apply { mkdirs() }
+                val archiveDir = File(rootDir, archiveDirName).apply { mkdirs() }
+                val trashDir = File(rootDir, trashDirName).apply { mkdirs() }
+
+                val converters = com.example.data.local.Converters()
+
+                for (project in projects) {
+                    val targetParentDir = when {
+                        project.isInTrash -> trashDir
+                        project.isArchived -> archiveDir
+                        else -> activeDir
+                    }
+
+                    // Sanitize project name
+                    val projSlug = project.title.replace("[\\\\/*?:\"<>|]".toRegex(), "_").trim()
+                    val projDirName = if (projSlug.isEmpty()) "Без названия (${project.id})" else projSlug
+                    val projFolder = File(targetParentDir, projDirName).apply { mkdirs() }
+
+                    // Handle folders inside this project recursively (infinite depth safe)
+                    val projectFolders = folders.filter { f -> f.projectId == project.id }
+                    val createdFoldersMap = mutableMapOf<Long, File>()
+                    val remainingFolders = projectFolders.toMutableList()
+                    var iterations = 0
+                    while (remainingFolders.isNotEmpty() && iterations < 20) {
+                        val iterator = remainingFolders.iterator()
+                        var resolvedAny = false
+                        while (iterator.hasNext()) {
+                            val folder = iterator.next()
+                            val parentDir = if (folder.parentFolderId == null) {
+                                projFolder
+                            } else {
+                                createdFoldersMap[folder.parentFolderId]
+                            }
+
+                            if (parentDir != null) {
+                                val folderSlug = folder.name.replace("[\\\\/*?:\"<>|]".toRegex(), "_").trim()
+                                val folderDirName = if (folderSlug.isEmpty()) "Новая папка (${folder.id})" else folderSlug
+                                val dir = File(parentDir, folderDirName).apply { mkdirs() }
+                                createdFoldersMap[folder.id] = dir
+                                iterator.remove()
+                                resolvedAny = true
+                            }
+                        }
+                        if (!resolvedAny) {
+                            break
+                        }
+                        iterations++
+                    }
+
+                    // Fallback for any remaining unmapped or cylic folders
+                    for (folder in remainingFolders) {
+                        val folderSlug = folder.name.replace("[\\\\/*?:\"<>|]".toRegex(), "_").trim()
+                        val folderDirName = if (folderSlug.isEmpty()) "Новая папка (${folder.id})" else folderSlug
+                        val dir = File(projFolder, folderDirName).apply { mkdirs() }
+                        createdFoldersMap[folder.id] = dir
+                    }
+
+                    // Export all markdown/blocks documents for this project
+                    val projectDocuments = documents.filter { d -> d.projectId == project.id }
+                    for (doc in projectDocuments) {
+                        val parentDir = if (doc.folderId != null) {
+                            createdFoldersMap[doc.folderId] ?: projFolder
+                        } else {
+                            projFolder
+                        }
+
+                        val docSlug = doc.title.replace("[\\\\/*?:\"<>|]".toRegex(), "_").trim()
+                        val docFileName = if (docSlug.isEmpty()) "Без названия (${doc.id})" else docSlug
+
+                        // Export as text document
+                        val txtFile = File(parentDir, "$docFileName.txt")
+                        val blocks = converters.toBlocksList(doc.contentBlocksJson)
+                        val textBuilder = StringBuilder()
+                        for (block in blocks) {
+                            if (block.type == "image") {
+                                textBuilder.append("[Изображение: ${block.imageCaption ?: "без названия"}]\n")
+                            } else {
+                                textBuilder.append(block.text)
+                                textBuilder.append("\n")
+                            }
+                        }
+                        txtFile.writeText(textBuilder.toString())
+
+                        // Export full JSON with styling metadata alongside
+                        val jsonFile = File(parentDir, "$docFileName.json")
+                        val docObj = JSONObject().apply {
+                            put("id", doc.id)
+                            put("projectId", doc.projectId)
+                            put("title", doc.title)
+                            put("contentBlocksJson", doc.contentBlocksJson)
+                            put("sortOrder", doc.sortOrder)
+                            put("isPlainText", doc.isPlainText)
+                            put("createdAt", doc.createdAt)
+                            put("updatedAt", doc.updatedAt)
+                        }
+                        jsonFile.writeText(docObj.toString(4))
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    onComplete(true, rootDir.absolutePath)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Unknown Error")
+                }
+            }
         }
     }
 }

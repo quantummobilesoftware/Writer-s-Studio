@@ -13,6 +13,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.composed
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -44,12 +49,16 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -558,7 +567,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                 .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
-                                .clickable { showAccountDialog = true }
+                                .bounceClickable { showAccountDialog = true }
                                 .testTag("account_icon_toggle_pixel"),
                             contentAlignment = Alignment.Center
                         ) {
@@ -632,7 +641,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                     if (isSearchPanelVisible) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                                     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 )
-                                .clickable { isSearchPanelVisible = !isSearchPanelVisible },
+                                .bounceClickable { isSearchPanelVisible = !isSearchPanelVisible },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -1027,7 +1036,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                 color = if (isSelected) Color.Transparent else Color(0xFF32333E),
                                                 shape = RoundedCornerShape(12.dp)
                                             )
-                                            .clickable { pType = typeId },
+                                            .bounceClickable { pType = typeId },
                                         shape = RoundedCornerShape(12.dp),
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
                                     ) {
@@ -1087,7 +1096,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                 .fillMaxSize()
                                                 .clip(CircleShape)
                                                 .background(Color(android.graphics.Color.parseColor(col)))
-                                                .clickable { selectedCol = col },
+                                                .bounceClickable { selectedCol = col },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             if (selectedCol == col) {
@@ -1292,7 +1301,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                                 .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                                .clickable { avatarPickerLauncher.launch("image/*") }
+                                .bounceClickable { avatarPickerLauncher.launch("image/*") }
                                 .testTag("select_avatar_trigger"),
                             contentAlignment = Alignment.Center
                         ) {
@@ -2154,7 +2163,7 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable { viewModel.selectFolder(null) }
+                            .bounceClickable { viewModel.selectFolder(null) }
                             .padding(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -2917,6 +2926,46 @@ fun DocumentEditorScreen(
     // Version snapshots pane
     var isHistoryPanelVisible by remember { mutableStateOf(false) }
 
+    // Custom tabs and reading setup
+    var editorTab by remember { mutableStateOf("BLOCKS") } // "BLOCKS", "DOCUMENT"
+    var isReadingMode by remember { mutableStateOf(false) }
+    var readFontSizeScale by remember { mutableStateOf(16f) }
+    var showAddBlockBottomSheet by remember { mutableStateOf(false) }
+    val collapsedBlocks = remember { mutableStateOf(setOf<String>()) }
+    val isKeyboardVisible = WindowInsets.isImeVisible
+
+    // Auto-save logic on changes (3 mins interval or 3 seconds debounce on manual update types)
+    LaunchedEffect(blocks) {
+        if (blocks.isNotEmpty()) {
+            delay(3000)
+            viewModel.saveActiveDocumentImmediate()
+        }
+    }
+
+    val getBlockAccentColor = { type: String ->
+        when (type) {
+            "scene" -> Color(0xFF2B5C8F)       // Deep Premium Blue
+            "character" -> Color(0xFF7B1FA2)   // Majestic Purple
+            "dialogue" -> Color(0xFF2E7D32)    // Warm Pine Green
+            "parenthetical" -> Color(0xFF00ACC1) // Teal parenthetical
+            "transition" -> Color(0xFFE65100)  // Sunset Orange
+            "image" -> Color(0xFF5A5C7E)       // Indigo Grey
+            else -> Color(0xFF6A7B83)          // Slate Grey
+        }
+    }
+
+    val getBlockIcon = { type: String ->
+        when (type) {
+            "scene" -> Icons.Default.Movie
+            "character" -> Icons.Default.Person
+            "dialogue" -> Icons.Default.ChatBubble
+            "parenthetical" -> Icons.Default.FormatQuote
+            "transition" -> Icons.Filled.ExitToApp
+            "image" -> Icons.Default.Image
+            else -> Icons.AutoMirrored.Filled.Notes
+        }
+    }
+
     val proLazyListState = rememberLazyListState()
 
     LaunchedEffect(activeBlockIndex) {
@@ -2935,6 +2984,22 @@ fun DocumentEditorScreen(
         var textLineHeight by remember { mutableStateOf(24) }
         var textFontFamilyName by remember { mutableStateOf("SansSerif") }
         var isFormatSettingsVisible by remember { mutableStateOf(false) }
+        
+        var showRenameDialog by remember { mutableStateOf(false) }
+        var newTitle by remember(document?.title, showRenameDialog) { mutableStateOf(document?.title ?: "") }
+
+        val basicScrollState = rememberScrollState()
+        var localTextValue by remember { mutableStateOf(TextFieldValue(textFileContent)) }
+        if (localTextValue.text != textFileContent) {
+            localTextValue = localTextValue.copy(
+                text = textFileContent,
+                selection = if (textFileContent.startsWith("- ") && localTextValue.text.isEmpty()) {
+                    TextRange(2)
+                } else {
+                    TextRange(textFileContent.length)
+                }
+            )
+        }
 
         val activeFontFamily = when (textFontFamilyName) {
             "Monospace" -> FontFamily.Monospace
@@ -2946,37 +3011,53 @@ fun DocumentEditorScreen(
         val sizeLabel = if (appLanguage == "ru") "Размер" else "Size"
         val spacingLabel = if (appLanguage == "ru") "Интервал" else "Spacing"
 
+        if (showRenameDialog) {
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                title = { Text(if (appLanguage == "ru") "Переименовать документ" else "Rename Document") },
+                text = {
+                    OutlinedTextField(
+                        value = newTitle,
+                        onValueChange = { newTitle = it },
+                        label = { Text(if (appLanguage == "ru") "Название" else "Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (newTitle.isNotBlank()) {
+                                viewModel.updateDocumentTitle(newTitle)
+                            }
+                            showRenameDialog = false
+                        }
+                    ) {
+                        Text(if (appLanguage == "ru") "Сохранить" else "Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRenameDialog = false }) {
+                        Text(if (appLanguage == "ru") "Отмена" else "Cancel")
+                    }
+                }
+            )
+        }
+
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = {
-                        var editingTitle by remember(document?.title) { mutableStateOf(document?.title ?: "") }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            BasicTextField(
-                                value = editingTitle,
-                                onValueChange = {
-                                    editingTitle = it
-                                    viewModel.updateDocumentTitle(it)
-                                },
-                                singleLine = true,
-                                maxLines = 1,
-                                textStyle = TextStyle(
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit title",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        Text(
+                            text = document?.title ?: "",
+                            style = TextStyle(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
                     },
                     navigationIcon = {
                         IconButton(onClick = {
@@ -2987,6 +3068,13 @@ fun DocumentEditorScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showRenameDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Rename Document",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                         IconButton(onClick = { isFormatSettingsVisible = !isFormatSettingsVisible }) {
                             Icon(
                                 imageVector = Icons.Default.TextFields,
@@ -3003,98 +3091,98 @@ fun DocumentEditorScreen(
                         IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
                             Icon(Icons.Filled.Save, l("manual_save", appLanguage))
                         }
-                        IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {
-                            Icon(Icons.Filled.PlayArrow, l("prompter", appLanguage))
+                        FilledIconButton(
+                            onClick = onLaunchPrompter,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("editor_prompter_btn")
+                                .bounceClickable { onLaunchPrompter() },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = l("prompter", appLanguage),
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
                 )
             },
-             bottomBar = {
-                Column(
+            bottomBar = {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface)
                         .windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
                     ) {
-                        // Word Count chip
                         Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.MenuBook,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${l("words", appLanguage)}: ${metrics.words}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
+                            // Word Count Item
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.MenuBook,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${l("words", appLanguage)}: ${metrics.words}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
-                        // Char Count chip
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.TextFormat,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${l("chars", appLanguage)}: ${metrics.characters}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
+                            // Char Count Item
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.TextFormat,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${l("chars", appLanguage)}: ${metrics.characters}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
-                        // Reading estimate chip
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Schedule,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "~${metrics.readingTimeMinutes} ${l("min", appLanguage)}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                            // Reading Time Item
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "~${metrics.readingTimeMinutes} ${l("min", appLanguage)}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -3189,7 +3277,7 @@ fun DocumentEditorScreen(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                                    .clickable { textFontFamilyName = family }
+                                                    .bounceClickable { textFontFamilyName = family }
                                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                                             ) {
                                                 Text(
@@ -3273,7 +3361,7 @@ fun DocumentEditorScreen(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                                    .clickable { textLineHeight = (textFontSize * scale).toInt() }
+                                                    .bounceClickable { textLineHeight = (textFontSize * scale).toInt() }
                                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                                             ) {
                                                 Text(
@@ -3299,26 +3387,29 @@ fun DocumentEditorScreen(
                         shape = RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                     ) {
-                        val basicScrollState = rememberScrollState()
-                        var localTextValue by remember { mutableStateOf(TextFieldValue(textFileContent)) }
-                        if (localTextValue.text != textFileContent) {
-                            localTextValue = localTextValue.copy(
-                                text = textFileContent,
-                                selection = if (textFileContent.startsWith("- ") && localTextValue.text.isEmpty()) {
-                                    TextRange(2)
-                                } else {
-                                    TextRange(textFileContent.length)
-                                }
-                            )
-                        }
+                        var containerHeightPx by remember { mutableStateOf(0) }
+                        var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-                        LaunchedEffect(localTextValue.selection) {
-                            val cursor = localTextValue.selection.start
-                            val totalLength = localTextValue.text.length
-                            if (totalLength > 0) {
-                                val ratio = cursor.toFloat() / totalLength.toFloat()
-                                val targetScroll = (basicScrollState.maxValue * ratio).toInt()
-                                basicScrollState.animateScrollTo(targetScroll)
+                        LaunchedEffect(localTextValue.selection, textLayoutResult, containerHeightPx) {
+                            val layout = textLayoutResult
+                            val containerHeight = containerHeightPx
+                            if (layout != null && containerHeight > 0) {
+                                val cursor = localTextValue.selection.start
+                                val safeCursor = cursor.coerceIn(0, layout.layoutInput.text.length)
+                                val line = layout.getLineForOffset(safeCursor)
+                                val lineTop = layout.getLineTop(line).toInt()
+                                val lineBottom = layout.getLineBottom(line).toInt()
+                                
+                                val currentScroll = basicScrollState.value
+                                val visibleMin = currentScroll
+                                val visibleMax = currentScroll + containerHeight
+                                
+                                val padding = 40
+                                if (lineTop - padding < visibleMin) {
+                                    basicScrollState.animateScrollTo((lineTop - padding).coerceAtLeast(0))
+                                } else if (lineBottom + padding > visibleMax) {
+                                    basicScrollState.animateScrollTo((lineBottom + padding - containerHeight).coerceAtLeast(0))
+                                }
                             }
                         }
 
@@ -3347,9 +3438,10 @@ fun DocumentEditorScreen(
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .onGloballyPositioned { containerHeightPx = it.size.height }
                                     .verticalScroll(basicScrollState)
-                                    .padding(bottom = 120.dp)
-                                    .testTag("basic_text_editor_input")
+                                    .testTag("basic_text_editor_input"),
+                                onTextLayout = { textLayoutResult = it }
                             )
 
                             if (textFileContent.isEmpty()) {
@@ -3417,10 +3509,16 @@ fun DocumentEditorScreen(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                                        .clickable {
-                                            val activeBlock = blocks.firstOrNull() ?: EditorBlock(type = "paragraph", text = "")
+                                        .bounceClickable {
+                                            val oldText = localTextValue.text
+                                            val selectionStart = localTextValue.selection.start.coerceIn(0, oldText.length)
+                                            val selectionEnd = localTextValue.selection.end.coerceIn(0, oldText.length)
                                             val appendText = if (symbol == "Tab") "    " else symbol
-                                            val newText = textFileContent + appendText
+                                            val newText = oldText.substring(0, selectionStart) + appendText + oldText.substring(selectionEnd)
+                                            val newSelection = TextRange(selectionStart + appendText.length)
+                                            localTextValue = TextFieldValue(text = newText, selection = newSelection)
+
+                                            val activeBlock = blocks.firstOrNull() ?: EditorBlock(type = "paragraph", text = "")
                                             viewModel.updateEditorBlocks(
                                                 listOf(activeBlock.copy(text = newText)),
                                                 updateHistory = true
@@ -3480,7 +3578,7 @@ fun DocumentEditorScreen(
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
                             items(history) { hist ->
                                 Card(
-                                    modifier = Modifier.fillMaxWidth().clickable { viewModel.restoreSnapshot(hist) }
+                                    modifier = Modifier.fillMaxWidth().bounceClickable { viewModel.restoreSnapshot(hist) }
                                 ) {
                                     Column(modifier = Modifier.padding(8.dp)) {
                                         Text(hist.snapshotName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -3527,63 +3625,93 @@ fun DocumentEditorScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    var editingTitle by remember(document?.title) { mutableStateOf(document?.title ?: "") }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            if (!isReadingMode) {
+                Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                    TopAppBar(
+                        title = {
+                            var editingTitle by remember(document?.title) { mutableStateOf(document?.title ?: "") }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                BasicTextField(
+                                    value = editingTitle,
+                                    onValueChange = {
+                                        editingTitle = it
+                                        viewModel.updateDocumentTitle(it)
+                                    },
+                                    singleLine = true,
+                                    maxLines = 1,
+                                    textStyle = TextStyle(
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit title",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = {
+                                viewModel.saveActiveDocumentImmediate()
+                                onBack()
+                            }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, l("close", appLanguage))
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { isSearchPanelVisible = !isSearchPanelVisible }) {
+                                Icon(Icons.Filled.Search, l("find_replace", appLanguage))
+                            }
+                            IconButton(onClick = { isHistoryPanelVisible = !isHistoryPanelVisible }) {
+                                Icon(Icons.Filled.History, l("versions", appLanguage))
+                            }
+                            IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
+                                Icon(Icons.Filled.Save, l("manual_save", appLanguage))
+                            }
+                            IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {
+                                Icon(Icons.Filled.PlayArrow, l("prompter", appLanguage))
+                            }
+                        }
+                    )
+
+                    // Navigation Tabs Row
+                    TabRow(
+                        selectedTabIndex = if (editorTab == "BLOCKS") 0 else 1,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        indicator = { tabPositions ->
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[if (editorTab == "BLOCKS") 0 else 1]),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     ) {
-                        BasicTextField(
-                            value = editingTitle,
-                            onValueChange = {
-                                editingTitle = it
-                                viewModel.updateDocumentTitle(it)
-                            },
-                            singleLine = true,
-                            maxLines = 1,
-                            textStyle = TextStyle(
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            ),
-                            modifier = Modifier.weight(1f)
+                        Tab(
+                            selected = editorTab == "BLOCKS",
+                            onClick = { editorTab = "BLOCKS" },
+                            text = { Text(if (appLanguage == "ru") "Блоки" else "Blocks", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.GridView, contentDescription = null) }
                         )
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit title",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(16.dp)
+                        Tab(
+                            selected = editorTab == "DOCUMENT",
+                            onClick = { editorTab = "DOCUMENT" },
+                            text = { Text(if (appLanguage == "ru") "Документ" else "Document", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.MenuBook, contentDescription = null) }
                         )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        viewModel.saveActiveDocumentImmediate()
-                        onBack()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, l("close", appLanguage))
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { isSearchPanelVisible = !isSearchPanelVisible }) {
-                        Icon(Icons.Filled.Search, l("find_replace", appLanguage))
-                    }
-                    IconButton(onClick = { isHistoryPanelVisible = !isHistoryPanelVisible }) {
-                        Icon(Icons.Filled.History, l("versions", appLanguage))
-                    }
-                    IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
-                        Icon(Icons.Filled.Save, l("manual_save", appLanguage))
-                    }
-                    IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {
-                        Icon(Icons.Filled.PlayArrow, l("prompter", appLanguage))
                     }
                 }
-            )
+            }
         },
         bottomBar = {
             val isKeyboardVisible = WindowInsets.isImeVisible
-            if (!isKeyboardVisible) {
+            if (!isKeyboardVisible && !isReadingMode) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3591,7 +3719,7 @@ fun DocumentEditorScreen(
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(8.dp)
                 ) {
-                    // Live metadata counters
+                    // Script stats metadata row
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3604,198 +3732,262 @@ fun DocumentEditorScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // FORMATTING HORIZONTAL BAR
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val activeBlock = blocks.getOrNull(activeBlockIndex)
-                        
-                        // Group: Undo / Redo
+                    if (editorTab == "BLOCKS") {
+                        // FORMATTING HORIZONTAL BAR
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(
-                                onClick = { viewModel.undo() },
-                                enabled = canUndo,
-                                modifier = Modifier.size(38.dp)
+                            val activeBlock = blocks.getOrNull(activeBlockIndex)
+                            
+                            // Undo/Redo Controls
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Undo,
-                                    contentDescription = "Отменить",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = if (canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
-                                )
+                                IconButton(
+                                    onClick = { viewModel.undo() },
+                                    enabled = canUndo,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Undo,
+                                        contentDescription = "Отменить",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = if (canUndo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.redo() },
+                                    enabled = canRedo,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Redo,
+                                        contentDescription = "Вернуть",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = if (canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
+                                    )
+                                }
                             }
 
-                            IconButton(
-                                onClick = { viewModel.redo() },
-                                enabled = canRedo,
-                                modifier = Modifier.size(38.dp)
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .height(24.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            )
+
+                            // Text Style Options
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Redo,
-                                    contentDescription = "Вернуть",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = if (canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
-                                )
+                                val isBold = activeBlock?.style?.isBold == true
+                                IconButton(
+                                    onClick = {
+                                        if (activeBlock != null) {
+                                            val updated = blocks.mapIndexed { index, b ->
+                                                if (index == activeBlockIndex) b.copy(style = b.style.copy(isBold = !isBold)) else b
+                                            }
+                                            viewModel.updateEditorBlocks(updated)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .testTag("format_bold")
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "B",
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 15.sp,
+                                            color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+
+                                val isItalic = activeBlock?.style?.isItalic == true
+                                IconButton(
+                                    onClick = {
+                                        if (activeBlock != null) {
+                                            val updated = blocks.mapIndexed { index, b ->
+                                                if (index == activeBlockIndex) b.copy(style = b.style.copy(isItalic = !isItalic)) else b
+                                            }
+                                            viewModel.updateEditorBlocks(updated)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .testTag("format_italic")
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "I",
+                                            fontWeight = FontWeight.Bold,
+                                            fontStyle = FontStyle.Italic,
+                                            fontSize = 15.sp,
+                                            color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+
+                                val isUnderline = activeBlock?.style?.isUnderline == true
+                                IconButton(
+                                    onClick = {
+                                        if (activeBlock != null) {
+                                          val updated = blocks.mapIndexed { index, b ->
+                                              if (index == activeBlockIndex) b.copy(style = b.style.copy(isUnderline = !isUnderline)) else b
+                                          }
+                                          viewModel.updateEditorBlocks(updated)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "U",
+                                            style = TextStyle(textDecoration = TextDecoration.Underline),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .height(24.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            )
+
+                            // Media picker action
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { pickerLauncher.launch("image/*") },
+                                    modifier = Modifier.size(38.dp).testTag("editor_insert_image")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Image,
+                                        contentDescription = "Вставить картинку",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .height(24.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        )
-
-                        // Group: Text formatting
+                    } else {
+                        // DOCUMENT MODE READING BAR CONTROLS
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val isBold = activeBlock?.style?.isBold == true
-                            IconButton(
-                                onClick = {
-                                    if (activeBlock != null) {
-                                        val updated = blocks.mapIndexed { index, b ->
-                                            if (index == activeBlockIndex) b.copy(style = b.style.copy(isBold = !isBold)) else b
-                                        }
-                                        viewModel.updateEditorBlocks(updated)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag("format_bold")
+                            Text(
+                                text = if (appLanguage == "ru") "Режим чтения" else "Reading Mode",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                // Scaling down font action
                                 Box(
                                     modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { if (readFontSizeScale > 10f) readFontSizeScale -= 1f },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = "B",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp,
-                                        color = if (isBold) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                    )
+                                    Text("A-", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 }
-                            }
-
-                            val isItalic = activeBlock?.style?.isItalic == true
-                            IconButton(
-                                onClick = {
-                                    if (activeBlock != null) {
-                                        val updated = blocks.mapIndexed { index, b ->
-                                            if (index == activeBlockIndex) b.copy(style = b.style.copy(isItalic = !isItalic)) else b
-                                        }
-                                        viewModel.updateEditorBlocks(updated)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag("format_italic")
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "I",
-                                        fontWeight = FontWeight.Bold,
-                                        fontStyle = FontStyle.Italic,
-                                        fontSize = 15.sp,
-                                        color = if (isItalic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-
-                            val isUnderline = activeBlock?.style?.isUnderline == true
-                            IconButton(
-                                onClick = {
-                                    if (activeBlock != null) {
-                                      val updated = blocks.mapIndexed { index, b ->
-                                          if (index == activeBlockIndex) b.copy(style = b.style.copy(isUnderline = !isUnderline)) else b
-                                      }
-                                      viewModel.updateEditorBlocks(updated)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isUnderline) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "U",
-                                        style = TextStyle(textDecoration = TextDecoration.Underline),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = if (isUnderline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .height(24.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        )
-
-                        // Group: Media and Addition actions
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = { pickerLauncher.launch("image/*") },
-                                modifier = Modifier.size(38.dp).testTag("editor_insert_image")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Image,
-                                    contentDescription = "Вставить картинку",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.primary
+                                
+                                Text(
+                                    text = "${(readFontSizeScale / 16f * 100).toInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    val list = blocks.toMutableList()
-                                    val insertIdx = if (activeBlockIndex in 0 until list.size) activeBlockIndex + 1 else list.size
-                                    list.add(insertIdx, EditorBlock(type = "paragraph", text = ""))
-                                    viewModel.updateEditorBlocks(list)
-                                    activeBlockIndex = insertIdx
-                                },
-                                modifier = Modifier.size(38.dp).testTag("editor_add_block")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AddCircle,
-                                    contentDescription = "Вставить строку",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                                
+                                // Scaling up font action
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { if (readFontSizeScale < 28f) readFontSizeScale += 1f },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("A+", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                                
+                                Spacer(modifier = Modifier.width(6.dp))
+                                
+                                // Launch Fullscreen Button
+                                Button(
+                                    onClick = { isReadingMode = true },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Text(if (appLanguage == "ru") "На весь экран" else "Fullscreen", fontSize = 11.sp)
+                                    }
+                                }
                             }
                         }
                     }
                 }
+            }
+        },
+        floatingActionButton = {
+            if (editorTab == "BLOCKS" && !isKeyboardVisible && !isReadingMode) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddBlockBottomSheet = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = "Добавить блок") },
+                    text = { Text(if (appLanguage == "ru") "Добавить блок" else "Add Block") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.testTag("fab_add_block")
+                )
             }
         }
     ) { paddingValues ->
@@ -3863,8 +4055,7 @@ fun DocumentEditorScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                            .padding(vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val activeBlock = blocks.getOrNull(activeBlockIndex)
@@ -3873,7 +4064,7 @@ fun DocumentEditorScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp),
+                                .padding(end = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -3886,346 +4077,740 @@ fun DocumentEditorScreen(
                             )
                             presets.forEach { (typeId, label, icon) ->
                                 val isCurr = activeBlock?.type == typeId
-                                ElevatedFilterChip(
-                                    selected = isCurr,
-                                    onClick = {
-                                        val updated = blocks.mapIndexed { idx, block ->
-                                            if (idx == activeBlockIndex) {
-                                                val formattedText = when (typeId) {
-                                                    "scene", "character" -> block.text.uppercase()
-                                                    "parenthetical" -> {
-                                                        val trimmed = block.text.trim()
-                                                        if (trimmed.isNotEmpty()) {
-                                                            val inner = trimmed.removePrefix("(").removeSuffix(")").trim()
-                                                            "($inner)"
-                                                        } else ""
-                                                    }
-                                                    "action", "dialogue" -> {
-                                                        if (block.text.isNotEmpty()) {
-                                                            block.text.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                                                        } else {
-                                                            block.text
+                                val containerColor = if (isCurr) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                }
+                                val contentColor = if (isCurr) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(containerColor)
+                                        .bounceClickable {
+                                            val updated = blocks.mapIndexed { idx, block ->
+                                                if (idx == activeBlockIndex) {
+                                                    val formattedText = when (typeId) {
+                                                        "scene", "character" -> block.text.uppercase()
+                                                        "parenthetical" -> {
+                                                            val trimmed = block.text.trim()
+                                                            if (trimmed.isNotEmpty()) {
+                                                                val inner = trimmed.removePrefix("(").removeSuffix(")").trim()
+                                                                "($inner)"
+                                                            } else ""
                                                         }
+                                                        "action", "dialogue" -> {
+                                                            if (block.text.isNotEmpty()) {
+                                                                block.text.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                                            } else {
+                                                                block.text
+                                                            }
+                                                        }
+                                                        else -> block.text
                                                     }
-                                                    else -> block.text
-                                                }
-                                                block.copy(
-                                                    type = typeId,
-                                                    text = formattedText,
-                                                    alignment = when (typeId) {
-                                                        "character", "dialogue", "parenthetical" -> "CENTER"
-                                                        "transition" -> "RIGHT"
-                                                        else -> "LEFT"
-                                                    }
-                                                )
-                                            } else block
+                                                    block.copy(
+                                                        type = typeId,
+                                                        text = formattedText,
+                                                        alignment = when (typeId) {
+                                                            "character", "dialogue", "parenthetical" -> "CENTER"
+                                                            "transition" -> "RIGHT"
+                                                            else -> "LEFT"
+                                                        }
+                                                    )
+                                                } else block
+                                            }
+                                            viewModel.updateEditorBlocks(updated)
                                         }
-                                        viewModel.updateEditorBlocks(updated)
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = label,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = if (isCurr) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                        )
-                                    },
-                                    label = { 
-                                        Text(
-                                            text = label, 
-                                            fontSize = 11.sp, 
-                                            fontWeight = if (isCurr) FontWeight.Bold else FontWeight.Medium
-                                        ) 
-                                    },
-                                    colors = FilterChipDefaults.elevatedFilterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    ),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = label,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = contentColor
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = label,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = contentColor
+                                    )
+                                }
                             }
                         }
 
+                        // Trash Button
                         Box(
                             modifier = Modifier
-                                .width(1.dp)
-                                .height(28.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        )
-
-                        IconButton(
-                            onClick = {
-                                val list = blocks.toMutableList()
-                                if (activeBlockIndex in 0 until list.size) {
-                                    list.removeAt(activeBlockIndex)
-                                    if (list.isEmpty()) list.add(EditorBlock(type = "paragraph", text = ""))
-                                    activeBlockIndex = Math.max(0, activeBlockIndex - 1)
-                                    viewModel.updateEditorBlocks(list)
-                                }
-                            },
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f))
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFF381416)) // Burgundy red
+                                .bounceClickable {
+                                    val list = blocks.toMutableList()
+                                    if (activeBlockIndex in 0 until list.size) {
+                                        list.removeAt(activeBlockIndex)
+                                        if (list.isEmpty()) list.add(EditorBlock(type = "paragraph", text = ""))
+                                        activeBlockIndex = Math.max(0, activeBlockIndex - 1)
+                                        viewModel.updateEditorBlocks(list)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Delete, 
-                                contentDescription = "Стереть блок", 
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Стереть блок",
+                                tint = Color(0xFFF2B8B5),
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
                 }
 
-                // BLOCKS LIST
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp),
-                    state = proLazyListState
-                ) {
-                    itemsIndexed(
-                        items = blocks,
-                        key = { _, block -> block.id }
-                    ) { index, block ->
-                        val isSelected = activeBlockIndex == index
-                        val focusRequester = remember { FocusRequester() }
+                if (editorTab == "BLOCKS") {
+                    // MAIN REDESIGNED M3 BLOCKS LIST
+                    LazyColumn(
+                        state = proLazyListState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        itemsIndexed(blocks, key = { _, block -> block.id }) { index, block ->
+                            val isSelected = index == activeBlockIndex
+                            val focusRequester = remember { FocusRequester() }
+                            val isCollapsed = collapsedBlocks.value.contains(block.id)
 
-                        LaunchedEffect(isSelected) {
-                            if (isSelected) {
-                                try {
-                                    focusRequester.requestFocus()
-                                } catch (e: Exception) {
-                                    // ignore if not attached yet
+                            LaunchedEffect(isSelected) {
+                                if (isSelected) {
+                                    try {
+                                        focusRequester.requestFocus()
+                                    } catch (e: Exception) {
+                                        // ignore
+                                    }
+                                }
+                            }
+
+                            val accentColor = getBlockAccentColor(block.type)
+                            val containerBg = if (isSelected) {
+                                accentColor.copy(alpha = 0.08f)
+                            } else {
+                                accentColor.copy(alpha = 0.03f)
+                            }
+                            val borderCol = if (isSelected) {
+                                accentColor.copy(alpha = 0.40f)
+                            } else {
+                                accentColor.copy(alpha = 0.12f)
+                            }
+                            val borderWidth = if (isSelected) 1.5.dp else 1.dp
+
+                            // Beautiful Card with 20dp corners and left vertical stripe accent
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(containerBg)
+                                    .border(borderWidth, borderCol, RoundedCornerShape(20.dp))
+                                    .bounceClickable { activeBlockIndex = index }
+                            ) {
+                                // Left accent stripe
+                                Box(
+                                    modifier = Modifier
+                                        .width(6.dp)
+                                        .background(
+                                            accentColor,
+                                            shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
+                                        )
+                                        .align(Alignment.CenterStart)
+                                        .height(IntrinsicSize.Max)
+                                )
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 20.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
+                                ) {
+                                    // Card Heading Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                                    .background(accentColor.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = getBlockIcon(block.type),
+                                                    contentDescription = null,
+                                                    tint = accentColor,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = when (block.type) {
+                                                    "scene" -> "СЦЕНА"
+                                                    "action" -> "ОПИСАНИЕ"
+                                                    "character" -> "ПЕРСОНАЖ"
+                                                    "dialogue" -> "РЕПЛИКА"
+                                                    "parenthetical" -> "РЕМАРКА"
+                                                    "transition" -> "ПЕРЕХОД"
+                                                    "image" -> "КАРТИНКА"
+                                                    "h1" -> "ЗАГОЛОВОК 1"
+                                                    "h2" -> "ЗАГОЛОВОК 2"
+                                                    "h3" -> "ЗАГОЛОВОК 3"
+                                                    else -> "ПАРАГРАФ"
+                                                },
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = accentColor,
+                                                letterSpacing = 0.5.sp
+                                            )
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            // Reorder - Shift Block UP
+                                            if (index > 0) {
+                                                IconButton(
+                                                    onClick = {
+                                                        val list = blocks.toMutableList()
+                                                        val temp = list[index]
+                                                        list[index] = list[index - 1]
+                                                        list[index - 1] = temp
+                                                        viewModel.updateEditorBlocks(list)
+                                                        activeBlockIndex = index - 1
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ArrowUpward,
+                                                        contentDescription = "Move Up",
+                                                        tint = accentColor.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            // Reorder - Shift Block DOWN
+                                            if (index < blocks.size - 1) {
+                                                IconButton(
+                                                    onClick = {
+                                                        val list = blocks.toMutableList()
+                                                        val temp = list[index]
+                                                        list[index] = list[index + 1]
+                                                        list[index + 1] = temp
+                                                        viewModel.updateEditorBlocks(list)
+                                                        activeBlockIndex = index + 1
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ArrowDownward,
+                                                        contentDescription = "Move Down",
+                                                        tint = accentColor.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            // Collapse / Expand Toggle chevron
+                                            IconButton(
+                                                onClick = {
+                                                    if (isCollapsed) {
+                                                        collapsedBlocks.value = collapsedBlocks.value - block.id
+                                                    } else {
+                                                        collapsedBlocks.value = collapsedBlocks.value + block.id
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                                    contentDescription = "Collapse/Expand",
+                                                    tint = accentColor.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+
+                                            // Block item deletion
+                                            IconButton(
+                                                onClick = {
+                                                    val list = blocks.toMutableList()
+                                                    list.removeAt(index)
+                                                    if (list.isEmpty()) {
+                                                        list.add(EditorBlock(type = "paragraph", text = ""))
+                                                    }
+                                                    viewModel.updateEditorBlocks(list)
+                                                    activeBlockIndex = Math.max(0, index - 1)
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete block",
+                                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    if (isCollapsed) {
+                                        // Compact text preview for collapsed state
+                                        val preview = block.text.ifBlank { if (appLanguage == "ru") "<Пустой блок>" else "<Empty block>" }
+                                        Text(
+                                            text = preview,
+                                            fontSize = 13.sp,
+                                            fontStyle = FontStyle.Italic,
+                                            color = Color.Gray,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                                        )
+                                    } else {
+                                        // Expanded mode block styling
+                                        if (block.type == "image") {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                AsyncImage(
+                                                    model = block.imageUrl,
+                                                    contentDescription = "Inline Image",
+                                                    modifier = Modifier
+                                                        .fillMaxWidth(block.imageSize)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                // Image Width Slider
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth(0.8f)
+                                                ) {
+                                                    Text("Шир:", fontSize = 10.sp, color = Color.Gray)
+                                                    Slider(
+                                                        value = block.imageSize,
+                                                        onValueChange = { newVal ->
+                                                            val updated = blocks.mapIndexed { idx, b ->
+                                                                if (idx == index) b.copy(imageSize = newVal) else b
+                                                            }
+                                                            viewModel.updateEditorBlocks(updated)
+                                                        },
+                                                        valueRange = 0.2f..1.0f,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
+                                                // Image Description / Caption field
+                                                BasicTextField(
+                                                    value = block.imageCaption ?: "",
+                                                    onValueChange = { newVal ->
+                                                        val updated = blocks.mapIndexed { idx, b ->
+                                                            if (idx == index) b.copy(imageCaption = newVal) else b
+                                                        }
+                                                        viewModel.updateEditorBlocks(updated, updateHistory = false)
+                                                    },
+                                                    textStyle = TextStyle(
+                                                        fontSize = 12.sp,
+                                                        fontStyle = FontStyle.Italic,
+                                                        color = Color.Gray
+                                                    ).copy(textAlign = TextAlign.Center),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                        } else {
+                                            val calculatedPadding = when (block.type) {
+                                                "character" -> PaddingValues(horizontal = 24.dp, vertical = 2.dp)
+                                                "dialogue" -> PaddingValues(horizontal = 16.dp, vertical = 2.dp)
+                                                "parenthetical" -> PaddingValues(horizontal = 20.dp, vertical = 1.dp)
+                                                else -> PaddingValues(0.dp)
+                                            }
+
+                                            val textStyle = TextStyle(
+                                                fontSize = when (block.type) {
+                                                    "h1" -> 22.sp
+                                                    "h2" -> 18.sp
+                                                    "h3" -> 16.sp
+                                                    "quote" -> 13.sp
+                                                    "character" -> 14.sp
+                                                    else -> 14.sp
+                                                },
+                                                fontWeight = when (block.type) {
+                                                    "h1", "h2", "h3", "character", "scene" -> FontWeight.Bold
+                                                    else -> if (block.style.isBold) FontWeight.Bold else FontWeight.Normal
+                                                },
+                                                fontStyle = when (block.type) {
+                                                    "quote", "parenthetical" -> FontStyle.Italic
+                                                    else -> if (block.style.isItalic) FontStyle.Italic else FontStyle.Normal
+                                                },
+                                                color = if (block.type == "quote") Color.Gray else MaterialTheme.colorScheme.onSurface,
+                                                fontFamily = if (block.type in listOf("character", "dialogue", "parenthetical", "scene")) FontFamily.Monospace else FontFamily.Serif
+                                            ).copy(
+                                                textDecoration = when {
+                                                    block.style.isUnderline -> TextDecoration.Underline
+                                                    block.style.isStrikethrough -> TextDecoration.LineThrough
+                                                    else -> TextDecoration.None
+                                                },
+                                                textAlign = when (block.alignment) {
+                                                    "CENTER" -> TextAlign.Center
+                                                    "RIGHT" -> TextAlign.Right
+                                                    "JUSTIFY" -> TextAlign.Justify
+                                                    else -> TextAlign.Left
+                                                }
+                                            )
+
+                                            Box(modifier = Modifier.padding(calculatedPadding)) {
+                                                var blockTextValue by remember(block.id) {
+                                                    mutableStateOf(
+                                                        TextFieldValue(
+                                                            text = block.text,
+                                                            selection = if (block.text.startsWith("- ")) TextRange(2) else TextRange(block.text.length)
+                                                        )
+                                                    )
+                                                }
+                                                if (blockTextValue.text != block.text) {
+                                                    blockTextValue = blockTextValue.copy(
+                                                        text = block.text,
+                                                        selection = if (blockTextValue.selection.start <= block.text.length && blockTextValue.selection.end <= block.text.length) {
+                                                            blockTextValue.selection
+                                                        } else {
+                                                            TextRange(block.text.length)
+                                                        }
+                                                    )
+                                                }
+
+                                                BasicTextField(
+                                                    value = blockTextValue,
+                                                    onValueChange = label@{ newVal ->
+                                                         blockTextValue = newVal
+                                                         val rawText = newVal.text
+                                                         
+                                                         // Backspace on empty block: delete block and move focus to previous block
+                                                         if (rawText.isEmpty() && block.text.isEmpty() && index > 0) {
+                                                             val list = blocks.toMutableList()
+                                                             list.removeAt(index)
+                                                             viewModel.updateEditorBlocks(list)
+                                                             activeBlockIndex = index - 1
+                                                             return@label
+                                                         }
+                                                         
+                                                         if (rawText.contains("\n")) {
+                                                             val parts = rawText.split("\n", limit = 2)
+                                                             val firstPart = parts.getOrNull(0) ?: ""
+                                                             val secondPart = parts.getOrNull(1) ?: ""
+                                                             val list = blocks.toMutableList()
+                                                             list[index] = block.copy(text = firstPart)
+                                                             val nextType = if (block.type == "character") "dialogue" else "paragraph"
+                                                             val newBlock = EditorBlock(type = nextType, text = if (firstPart.trimStart().startsWith("- ")) "- " + secondPart else secondPart)
+                                                             list.add(index + 1, newBlock)
+                                                             viewModel.updateEditorBlocks(list)
+                                                             activeBlockIndex = index + 1
+                                                             return@label
+                                                         }
+                                                        var updatedValue = if (isTranslitEnabled && rawText.length > block.text.length) {
+                                                            val addedText = rawText.substring(block.text.length)
+                                                            block.text + transliterateEnToRu(addedText)
+                                                        } else rawText
+
+                                                        updatedValue = when (block.type) {
+                                                            "scene", "character" -> updatedValue.uppercase()
+                                                            "parenthetical" -> {
+                                                                if (block.text.isEmpty() && updatedValue.isNotEmpty() && !updatedValue.startsWith("(")) {
+                                                                    val wrapped = "($updatedValue)"
+                                                                    blockTextValue = newVal.copy(text = wrapped, selection = TextRange(newVal.selection.start + 1, newVal.selection.end + 1))
+                                                                    wrapped
+                                                                 } else {
+                                                                    updatedValue
+                                                                 }
+                                                            }
+                                                            "action", "dialogue", "h1", "h2", "h3" -> {
+                                                                if (block.text.isEmpty() && updatedValue.isNotEmpty()) {
+                                                                    updatedValue.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                                                } else {
+                                                                    updatedValue
+                                                                 }
+                                                            }
+                                                            else -> updatedValue
+                                                        }
+
+                                                        val updated = blocks.mapIndexed { idx, b ->
+                                                            if (idx == index) b.copy(text = if (block.text == "- " && updatedValue == "-") "" else updatedValue) else b
+                                                        }
+                                                        viewModel.updateEditorBlocks(updated, updateHistory = false)
+                                                    },
+                                                    textStyle = textStyle,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .focusRequester(focusRequester)
+                                                        .onFocusChanged { if (it.isFocused) { activeBlockIndex = index } }
+                                                        .testTag("editor_text_field_$index")
+                                                )
+                                                if (block.text.isEmpty()) {
+                                                    Text(
+                                                        text = when (block.type) {
+                                                            "scene" -> "ИНТ. ГОСТИНАЯ - ДЕНЬ"
+                                                            "character" -> "ПЕРСОНАЖ"
+                                                            "dialogue" -> "Реплика персонажа..."
+                                                            "parenthetical" -> "(шепотом)"
+                                                            "h1" -> "Заголовок 1..."
+                                                            else -> "Введите текст..."
+                                                        },
+                                                        style = textStyle.copy(color = Color.LightGray.copy(alpha = 0.5f))
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+                } else {
+                    // ==========================================
+                    // --- DOCUMENT PREVIEW / SCRIPT READING MODE ---
+                    // ==========================================
+                    val readingLazyState = rememberLazyListState()
+                    val readerScope = rememberCoroutineScope()
+                    
+                    // Filter blocks for active Scene Heading records for navigation jump chips
+                    val scenesList = remember(blocks) {
+                        blocks.filter { b -> b.type == "scene" && b.text.isNotBlank() }
+                    }
 
+                    if (isReadingMode) {
+                        // Semitransparent floating button to close distraction-free mode
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f)
-                                    else Color.Transparent
-                                )
-                                .border(
-                                    width = if (isSelected) 1.5.dp else 0.5.dp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .clickable { activeBlockIndex = index }
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .padding(16.dp),
+                            contentAlignment = Alignment.TopEnd
                         ) {
-                            // Block Type Tag Badge inside selected blocks
-                            if (isSelected) {
-                                val label = when (block.type) {
-                                    "scene" -> "СЦЕНА"
-                                    "action" -> "ОПИСАНИЕ"
-                                    "character" -> "ПЕРСОНАЖ"
-                                    "dialogue" -> "РЕПЛИКА"
-                                    "parenthetical" -> "ДЕЙСТВИЕ"
-                                    "image" -> "КАРТИНКА"
-                                    "h1", "h2", "h3" -> "ЗАГОЛОВОК"
-                                    else -> "ПАРАГРАФ"
-                                }
-                                Text(
-                                    text = label,
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(2.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                            shape = RoundedCornerShape(4.dp)
-                                        )
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                                )
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
+                                    .clickable { isReadingMode = false },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = MaterialTheme.colorScheme.onSurface)
                             }
+                        }
+                    }
 
-                            if (block.type == "image") {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    AsyncImage(
-                                        model = block.imageUrl,
-                                        contentDescription = "Inline Image",
+                    // Scene quick jump index chips bar
+                    if (scenesList.isNotEmpty() && !isReadingMode) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                .padding(vertical = 8.dp, horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Movie,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (appLanguage == "ru") "Сцены:" else "Scenes:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                scenesList.forEach { sBlock ->
+                                    Box(
                                         modifier = Modifier
-                                            .fillMaxWidth(block.imageSize)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    // Custom Width slider
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth(0.8f)
-                                    ) {
-                                        Text("Шир:", fontSize = 10.sp, color = Color.Gray)
-                                        Slider(
-                                            value = block.imageSize,
-                                            onValueChange = { newVal ->
-                                                val updated = blocks.mapIndexed { idx, b ->
-                                                    if (idx == index) b.copy(imageSize = newVal) else b
-                                                }
-                                                viewModel.updateEditorBlocks(updated)
-                                            },
-                                            valueRange = 0.2f..1.0f,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                    // Caption editor
-                                    BasicTextField(
-                                        value = block.imageCaption ?: "",
-                                        onValueChange = { newVal ->
-                                            val updated = blocks.mapIndexed { idx, b ->
-                                                if (idx == index) b.copy(imageCaption = newVal) else b
-                                            }
-                                            viewModel.updateEditorBlocks(updated, updateHistory = false)
-                                        },
-                                        textStyle = TextStyle(
-                                            fontSize = 12.sp,
-                                            fontStyle = FontStyle.Italic,
-                                            color = Color.Gray,
-                                            textAlign = TextAlign.Center
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            } else {
-                                // Screenplay indent variables
-                                val calculatedPadding = when (block.type) {
-                                    "character" -> PaddingValues(horizontal = 48.dp, vertical = 2.dp)
-                                    "dialogue" -> PaddingValues(horizontal = 32.dp, vertical = 2.dp)
-                                    "parenthetical" -> PaddingValues(horizontal = 40.dp, vertical = 1.dp)
-                                    else -> PaddingValues(0.dp)
-                                }
-
-                                val textStyle = TextStyle(
-                                    fontSize = when (block.type) {
-                                        "h1" -> 22.sp
-                                        "h2" -> 18.sp
-                                        "h3" -> 16.sp
-                                        "quote" -> 13.sp
-                                        "character" -> 14.sp
-                                        else -> 14.sp
-                                    },
-                                    fontWeight = when (block.type) {
-                                        "h1", "h2", "h3", "character", "scene" -> FontWeight.Bold
-                                        else -> if (block.style.isBold) FontWeight.Bold else FontWeight.Normal
-                                    },
-                                    fontStyle = when (block.type) {
-                                        "quote", "parenthetical" -> FontStyle.Italic
-                                        else -> if (block.style.isItalic) FontStyle.Italic else FontStyle.Normal
-                                    },
-                                    textDecoration = when {
-                                        block.style.isUnderline -> TextDecoration.Underline
-                                        block.style.isStrikethrough -> TextDecoration.LineThrough
-                                        else -> TextDecoration.None
-                                    },
-                                    textAlign = when (block.alignment) {
-                                        "CENTER" -> TextAlign.Center
-                                        "RIGHT" -> TextAlign.Right
-                                        "JUSTIFY" -> TextAlign.Justify
-                                        else -> TextAlign.Left
-                                    },
-                                    color = if (block.type == "quote") Color.Gray else MaterialTheme.colorScheme.onSurface,
-                                    fontFamily = if (block.type in listOf("character", "dialogue", "parenthetical", "scene")) FontFamily.Monospace else FontFamily.Serif
-                                )
-
-                                Box(modifier = Modifier.padding(calculatedPadding)) {
-                                    var blockTextValue by remember {
-                                        mutableStateOf(
-                                            TextFieldValue(
-                                                text = block.text,
-                                                selection = if (block.text.startsWith("- ")) TextRange(2) else TextRange(block.text.length)
-                                            )
-                                        )
-                                    }
-                                    if (blockTextValue.text != block.text) {
-                                        blockTextValue = blockTextValue.copy(
-                                            text = block.text,
-                                            selection = if (block.text.startsWith("- ") && blockTextValue.text.isEmpty()) {
-                                                TextRange(2)
-                                            } else {
-                                                TextRange(block.text.length)
-                                            }
-                                        )
-                                    }
-
-                                    BasicTextField(
-                                        value = blockTextValue,
-                                        onValueChange = label@{ newVal ->
-                                             blockTextValue = newVal
-                                             val rawText = newVal.text
-                                             if (rawText.contains("\n")) {
-                                                 val parts = rawText.split("\n", limit = 2)
-                                                 val firstPart = parts.getOrNull(0) ?: ""
-                                                 val secondPart = parts.getOrNull(1) ?: ""
-                                                 val list = blocks.toMutableList()
-                                                 list[index] = block.copy(text = firstPart)
-                                                 val nextType = if (block.type == "character") "dialogue" else "paragraph"
-                                                 val newBlock = EditorBlock(type = nextType, text = if (firstPart.trimStart().startsWith("- ")) "- " + secondPart else secondPart)
-                                                 list.add(index + 1, newBlock)
-                                                 viewModel.updateEditorBlocks(list)
-                                                 activeBlockIndex = index + 1
-                                                 return@label
-                                             }
-                                            var updatedValue = if (isTranslitEnabled && rawText.length > block.text.length) {
-                                                val addedText = rawText.substring(block.text.length)
-                                                block.text + transliterateEnToRu(addedText)
-                                            } else rawText
-
-                                            updatedValue = when (block.type) {
-                                                "scene", "character" -> updatedValue.uppercase()
-                                                "parenthetical" -> {
-                                                    if (block.text.isEmpty() && updatedValue.isNotEmpty() && !updatedValue.startsWith("(")) {
-                                                        "($updatedValue)"
-                                                     } else {
-                                                        updatedValue
-                                                     }
-                                                }
-                                                "action", "dialogue", "h1", "h2", "h3" -> {
-                                                    if (block.text.isEmpty() && updatedValue.isNotEmpty()) {
-                                                        updatedValue.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                                                    } else {
-                                                        updatedValue
+                                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                                            .clickable {
+                                                val sIdx = blocks.indexOf(sBlock)
+                                                if (sIdx != -1) {
+                                                    readerScope.launch {
+                                                        readingLazyState.animateScrollToItem(sIdx)
                                                     }
                                                 }
-                                                else -> updatedValue
                                             }
-
-                                            val updated = blocks.mapIndexed { idx, b ->
-                                                if (idx == index) b.copy(text = if (block.text == "- " && updatedValue == "-") "" else updatedValue) else b
-                                            }
-                                            viewModel.updateEditorBlocks(updated, updateHistory = false)
-                                        },
-                                        textStyle = textStyle,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .focusRequester(focusRequester).onFocusChanged { if (it.isFocused) { activeBlockIndex = index } }.testTag("editor_text_field_$index")
-                                    )
-                                    if (block.text.isEmpty()) {
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
                                         Text(
-                                            text = when (block.type) {
-                                                "scene" -> "ИНТ. ГОСТИНАЯ - ДЕНЬ"
-                                                "character" -> "ПЕРСОНАЖ"
-                                                "dialogue" -> "Реплика персонажа..."
-                                                "parenthetical" -> "(шепотом)"
-                                                "h1" -> "Заголовок 1..."
-                                                else -> "Введите текст..."
-                                            },
-                                            style = textStyle.copy(color = Color.LightGray.copy(alpha = 0.5f))
+                                            text = sBlock.text.take(30) + if (sBlock.text.length > 30) "..." else "",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
                                         )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Ivory/White script sheet layout body
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        color = if (MaterialTheme.colorScheme.background == Color.White) Color(0xFFFFFFF8) else MaterialTheme.colorScheme.background,
+                        tonalElevation = 1.dp
+                    ) {
+                        if (blocks.isEmpty() || (blocks.size == 1 && blocks[0].text.isBlank())) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (appLanguage == "ru") "Сценарий пуст" else "Script is empty",
+                                    fontStyle = FontStyle.Italic,
+                                    color = Color.Gray
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                state = readingLazyState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 24.dp),
+                                contentPadding = PaddingValues(vertical = 24.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(blocks) { rBlock ->
+                                    val formattedContent = rBlock.text
+                                    
+                                    when (rBlock.type) {
+                                        "scene" -> {
+                                            Text(
+                                                text = formattedContent.uppercase(),
+                                                fontSize = readFontSizeScale.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = getBlockAccentColor("scene"),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 16.dp, bottom = 4.dp)
+                                            )
+                                        }
+                                        "character" -> {
+                                            Text(
+                                                text = formattedContent.uppercase(),
+                                                fontSize = readFontSizeScale.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = getBlockAccentColor("character"),
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 64.dp, end = 64.dp, top = 8.dp, bottom = 2.dp)
+                                            )
+                                        }
+                                        "dialogue" -> {
+                                            Text(
+                                                text = formattedContent,
+                                                fontSize = readFontSizeScale.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                textAlign = TextAlign.Left,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 96.dp, end = 48.dp, top = 2.dp, bottom = 8.dp)
+                                            )
+                                        }
+                                        "parenthetical" -> {
+                                            Text(
+                                                text = formattedContent,
+                                                fontSize = (readFontSizeScale - 1).sp,
+                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = getBlockAccentColor("parenthetical"),
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 120.dp, end = 80.dp, top = 1.dp, bottom = 1.dp)
+                                            )
+                                        }
+                                        "transition" -> {
+                                            Text(
+                                                text = formattedContent.uppercase(),
+                                                fontSize = readFontSizeScale.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = getBlockAccentColor("transition"),
+                                                textAlign = TextAlign.Right,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 8.dp, bottom = 8.dp)
+                                            )
+                                        }
+                                        "image" -> {
+                                            if (!rBlock.imageUrl.isNullOrBlank()) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 12.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    AsyncImage(
+                                                        model = rBlock.imageUrl,
+                                                        contentDescription = "Script inline image illustration",
+                                                        modifier = Modifier
+                                                            .fillMaxWidth(rBlock.imageSize)
+                                                            .clip(RoundedCornerShape(12.dp))
+                                                            .border(
+                                                                1.dp,
+                                                                MaterialTheme.colorScheme.outlineVariant,
+                                                                RoundedCornerShape(12.dp)
+                                                            )
+                                                    )
+                                                    if (!rBlock.imageCaption.isNullOrBlank()) {
+                                                        Text(
+                                                            text = rBlock.imageCaption,
+                                                            fontSize = 11.sp,
+                                                            fontStyle = FontStyle.Italic,
+                                                            color = Color.Gray,
+                                                            modifier = Modifier.padding(top = 4.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        else -> {
+                                            Text(
+                                                text = formattedContent,
+                                                fontSize = readFontSizeScale.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = TextStyle(lineHeight = (readFontSizeScale * 1.5f).sp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 6.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -4527,17 +5112,13 @@ fun DocumentEditorScreen(
 
                             IconButton(
                                 onClick = {
-                                    val list = blocks.toMutableList()
-                                    val insertIdx = if (activeBlockIndex in 0 until list.size) activeBlockIndex + 1 else list.size
-                                    list.add(insertIdx, EditorBlock(type = "paragraph", text = ""))
-                                    viewModel.updateEditorBlocks(list)
-                                    activeBlockIndex = insertIdx
+                                    showAddBlockBottomSheet = true
                                 },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.AddCircle,
-                                    contentDescription = "Вставить строку",
+                                    contentDescription = "Вставить блок",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -4607,6 +5188,103 @@ fun DocumentEditorScreen(
                         Text("Закрыть")
                     }
                 }
+            }
+
+            if (showAddBlockBottomSheet) {
+                AlertDialog(
+                    onDismissRequest = { showAddBlockBottomSheet = false },
+                    title = {
+                        Text(
+                            text = if (appLanguage == "ru") "Добавить новый блок" else "Add New Block",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    text = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            val blockTypes = listOf(
+                                "paragraph" to ((if (appLanguage == "ru") "Параграф / Обычный текст" else "Paragraph / Normal Text") to Icons.AutoMirrored.Filled.Notes),
+                                "scene" to ((if (appLanguage == "ru") "Сцена (ИНТ./ЭКСТ.)" else "Scene Heading") to Icons.Filled.Movie),
+                                "action" to ((if (appLanguage == "ru") "Описание действия" else "Action Description") to Icons.AutoMirrored.Filled.Notes),
+                                "character" to ((if (appLanguage == "ru") "Персонаж" else "Character Name") to Icons.Filled.Person),
+                                "dialogue" to ((if (appLanguage == "ru") "Реплика персонажа" else "Character Dialogue") to Icons.Filled.Chat),
+                                "parenthetical" to ((if (appLanguage == "ru") "Действие (в скобках)" else "Parenthetical") to Icons.Filled.FormatQuote),
+                                "h1" to ((if (appLanguage == "ru") "Заголовок 1 уровня" else "Heading 1") to Icons.Filled.Title),
+                                "h2" to ((if (appLanguage == "ru") "Заголовок 2 уровня" else "Heading 2") to Icons.Filled.Title),
+                                "h3" to ((if (appLanguage == "ru") "Заголовок 3 уровня" else "Heading 3") to Icons.Filled.Title),
+                                "quote" to ((if (appLanguage == "ru") "Цитата" else "Quote") to Icons.Filled.FormatQuote),
+                                "image" to ((if (appLanguage == "ru") "Иллюстрация / Картинка" else "Image / Illustration") to Icons.Filled.Image)
+                            )
+
+                            blockTypes.forEach { (typeKey, pair) ->
+                                val (label, icon) = pair
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .bounceClickable {
+                                            val list = blocks.toMutableList()
+                                            val insertIdx = if (activeBlockIndex in 0 until list.size) activeBlockIndex + 1 else list.size
+                                            when (typeKey) {
+                                                "image" -> {
+                                                    showAddBlockBottomSheet = false
+                                                    pickerLauncher.launch("image/*")
+                                                }
+                                                else -> {
+                                                    val newBlk = EditorBlock(type = typeKey, text = "")
+                                                    list.add(insertIdx, newBlk)
+                                                    viewModel.updateEditorBlocks(list)
+                                                    activeBlockIndex = insertIdx
+                                                    showAddBlockBottomSheet = false
+                                                }
+                                            }
+                                        },
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(getBlockAccentColor(typeKey).copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = null,
+                                                tint = getBlockAccentColor(typeKey),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = label,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showAddBlockBottomSheet = false }) {
+                            Text(if (appLanguage == "ru") "Отмена" else "Close", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    shape = RoundedCornerShape(24.dp)
+                )
             }
         }
     }
@@ -4705,152 +5383,138 @@ fun PrompterScreen(viewModel: WriterViewModel, onClose: () -> Unit) {
             }
         }
 
-        if (isSettingsCollapsed) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .navigationBarsPadding(),
-                shape = RoundedCornerShape(percent = 50),
-                color = if (prompterTheme.value == "BRIGHT") {
-                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)
-                } else {
-                    Color(0xFF161618).copy(alpha = 0.9f)
-                },
-                tonalElevation = 8.dp,
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // "Settings" Button to expand settings back
-                    IconButton(
-                        onClick = { isSettingsCollapsed = false },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = if (appLanguage == "ru") "Настройки" else "Settings",
-                            tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+        // Cinematic gradient ambient fading overlays (top and bottom) that blend beautifully
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(prompterBg, Color.Transparent)
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, prompterBg)
+                    )
+                )
+        )
 
-                    // Play/Pause circular button (Start)
-                    FilledIconButton(
-                        onClick = { isScrolling = !isScrolling },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("prompter_play_pause"),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(
-                            imageVector = if (isScrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = l("prompter", appLanguage),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // Exit IconButton
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = l("exit", appLanguage),
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-            }
-        } else {
-            // CONTROL OVERLAY CONTAINER (Material 3 Styled Bottom Sheet style overlay)
-            Surface(
+        // Reading guide horizontal indicator line & left/right arrows that pulsate dynamically
+        val pulseScale by rememberInfiniteTransition(label = "pulse").animateFloat(
+            initialValue = 0.85f,
+            targetValue = 1.15f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseScale"
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.Center)
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f * pulseScale),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding(),
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                color = if (prompterTheme.value == "BRIGHT") {
-                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f)
-                } else {
-                    Color(0xFF161618).copy(alpha = 0.95f)
-                },
-                tonalElevation = 8.dp,
-                shadowElevation = 8.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pointerInput(Unit) {
-                            var accumulatedDrag = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { accumulatedDrag = 0f },
-                                onDragEnd = { accumulatedDrag = 0f },
-                                onDragCancel = { accumulatedDrag = 0f },
-                                onVerticalDrag = { change, dragAmount ->
-                                    accumulatedDrag += dragAmount
-                                    if (accumulatedDrag > 45f) { // Swipe down trigger
-                                        isSettingsCollapsed = true
-                                        accumulatedDrag = 0f
-                                    }
-                                }
+                    .size(20.dp)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                    }
+            )
+            // Thin elegant glowing horizontal guide line
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp)
+                    .height(1.dp)
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Transparent, 
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), 
+                                Color.Transparent
                             )
-                        }
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Tiny drag handle and swipe-to-collapse row
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp, 4.dp)
-                                .background(
-                                    color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray).copy(alpha = 0.4f),
-                                    shape = RoundedCornerShape(2.dp)
-                                )
                         )
-                        
-                        Text(
-                            text = if (appLanguage == "ru") "Проведите пальцем вниз, чтобы свернуть настройки" else "Swipe down to collapse settings",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray).copy(alpha = 0.6f)
-                        )
+                    )
+            )
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f * pulseScale),
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer {
+                        rotationZ = 180f
+                        scaleX = pulseScale
+                        scaleY = pulseScale
                     }
+            )
+        }
 
-                    // Row 1: Estimated Time, Words & Play/Pause Circular FAB
+        // Elegant animated slide input toggle drawer controls
+        AnimatedContent(
+            targetState = isSettingsCollapsed,
+            transitionSpec = {
+                if (targetState) {
+                    (slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(animationSpec = tween(220)))
+                        .togetherWith(slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(220)))
+                } else {
+                    (slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(280)))
+                        .togetherWith(slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(animationSpec = tween(220)))
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
+            label = "PrompterSettingsTransition"
+        ) { collapsed ->
+            if (collapsed) {
+                Surface(
+                    modifier = Modifier
+                        .padding(bottom = 24.dp),
+                    shape = RoundedCornerShape(percent = 50),
+                    color = if (prompterTheme.value == "BRIGHT") {
+                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)
+                    } else {
+                        Color(0xFF161618).copy(alpha = 0.9f)
+                    },
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(
-                                text = "${l("speech_live", appLanguage)}${remainingTimeMin}${l("minutes_left", appLanguage)}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray
-                            )
-                            Text(
-                                text = if (appLanguage == "ru") "Всего: $wordsCount слов(а)" else "Total: $wordsCount words",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray
+                        // "Settings" Button to expand settings back
+                        IconButton(
+                            onClick = { isSettingsCollapsed = false },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = if (appLanguage == "ru") "Настройки" else "Settings",
+                                tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        // Floating Action Indicator Play / Pause
+                        // Play/Pause circular button (Start)
                         FilledIconButton(
                             onClick = { isScrolling = !isScrolling },
                             modifier = Modifier
@@ -4861,205 +5525,334 @@ fun PrompterScreen(viewModel: WriterViewModel, onClose: () -> Unit) {
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             )
                         ) {
+                            AnimatedContent(
+                                targetState = isScrolling,
+                                transitionSpec = {
+                                    (scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn())
+                                        .togetherWith(scaleOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)) + fadeOut())
+                                },
+                                label = "PlayPauseIconMini"
+                            ) { scrolling ->
+                                Icon(
+                                    imageVector = if (scrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = l("prompter", appLanguage),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        // Exit IconButton
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier.size(40.dp)
+                        ) {
                             Icon(
-                                imageVector = if (isScrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = l("prompter", appLanguage),
-                                modifier = Modifier.size(24.dp)
+                                imageVector = Icons.Default.Close,
+                                contentDescription = l("exit", appLanguage),
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
-
-                    Divider(
-                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.4f),
-                        thickness = 0.5.dp
-                    )
-
-                    // Row 2: Contrast & Theme Selector
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = l("prompter_theme", appLanguage),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
-                            modifier = Modifier.width(64.dp)
-                        )
-                        
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf(
-                                "DARK" to l("theme_dark_prompter", appLanguage),
-                                "AMBER" to l("theme_amber_prompter", appLanguage),
-                                "BRIGHT" to l("theme_bright_prompter", appLanguage)
-                            ).forEach { (themeId, label) ->
-                                val isSel = prompterTheme.value == themeId
-                                FilterChip(
-                                    selected = isSel,
-                                    onClick = { prompterTheme.value = themeId },
-                                    label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
+                }
+            } else {
+                // CONTROL OVERLAY CONTAINER (Material 3 Styled Bottom Sheet style overlay)
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    color = if (prompterTheme.value == "BRIGHT") {
+                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f)
+                    } else {
+                        Color(0xFF161618).copy(alpha = 0.95f)
+                    },
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(Unit) {
+                                var accumulatedDrag = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { accumulatedDrag = 0f },
+                                    onDragEnd = { accumulatedDrag = 0f },
+                                    onDragCancel = { accumulatedDrag = 0f },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        accumulatedDrag += dragAmount
+                                        if (accumulatedDrag > 45f) { // Swipe down trigger
+                                            isSettingsCollapsed = true
+                                            accumulatedDrag = 0f
+                                        }
+                                    }
                                 )
                             }
-                        }
-                    }
-
-                    // Row 3: Font Selection
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = if (appLanguage == "ru") "Шрифт:" else "Font:",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
-                            modifier = Modifier.width(64.dp)
-                        )
-                        
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        // Tiny drag handle and swipe-to-collapse row
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            listOf(
-                                "SERIF" to (if (appLanguage == "ru") "Засечки" else "Serif"),
-                                "SANS_SERIF" to (if (appLanguage == "ru") "Без засечек" else "Sans"),
-                                "MONO" to (if (appLanguage == "ru") "Моно" else "Mono")
-                            ).forEach { (fontId, label) ->
-                                val isSel = prompterFont == fontId
-                                FilterChip(
-                                    selected = isSel,
-                                    onClick = { prompterFont = fontId },
-                                    label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp, 4.dp)
+                                    .background(
+                                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray).copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(2.dp)
+                                    )
+                            )
+                            
+                            Text(
+                                text = if (appLanguage == "ru") "Проведите пальцем вниз, чтобы свернуть настройки" else "Swipe down to collapse settings",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray).copy(alpha = 0.6f)
+                            )
+                        }
+
+                        // Row 1: Estimated Time, Words & Play/Pause Circular FAB
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "${l("speech_live", appLanguage)}${remainingTimeMin}${l("minutes_left", appLanguage)}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray
+                                )
+                                Text(
+                                    text = if (appLanguage == "ru") "Всего: $wordsCount слов(а)" else "Total: $wordsCount words",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray
                                 )
                             }
+
+                            // Floating Action Indicator Play / Pause
+                            FilledIconButton(
+                                onClick = { isScrolling = !isScrolling },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("prompter_play_pause"),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            ) {
+                                AnimatedContent(
+                                    targetState = isScrolling,
+                                    transitionSpec = {
+                                        (scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn())
+                                            .togetherWith(scaleOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)) + fadeOut())
+                                    },
+                                    label = "PlayPauseIconExpanded"
+                                ) { scrolling ->
+                                    Icon(
+                                        imageVector = if (scrolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        contentDescription = l("prompter", appLanguage),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
                         }
-                    }
 
-                    Divider(
-                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.3f),
-                        thickness = 0.5.dp
-                    )
+                        Divider(
+                            color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.4f),
+                            thickness = 0.5.dp
+                        )
 
-                    // Row 4: Speed Slider Control
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = l("speed", appLanguage),
-                            tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = if (appLanguage == "ru") "Скорость" else "Speed",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
-                            modifier = Modifier.width(84.dp)
-                        )
-                        Slider(
-                            value = scrollSpeed,
-                            onValueChange = { scrollSpeed = it },
-                            valueRange = 1f..50f,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "${scrollSpeed.toInt()}",
-                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(28.dp)
-                        )
-                    }
-
-                    // Row 5: Text Size Slider Control
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.TextFields,
-                            contentDescription = "Text Size",
-                            tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = if (appLanguage == "ru") "Размер" else "Text Size",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
-                            modifier = Modifier.width(84.dp)
-                        )
-                        Slider(
-                            value = textFontSize,
-                            onValueChange = { textFontSize = it },
-                            valueRange = 16f..72f,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "${textFontSize.toInt()}sp",
-                            color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(44.dp)
-                        )
-                    }
-
-                    Divider(
-                        color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.3f),
-                        thickness = 0.5.dp
-                    )
-
-                    // Row 6: Mirror Controls & Close Button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                        // Row 2: Contrast & Theme Selector
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (appLanguage == "ru") "Зеркало:" else "Mirror:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray
+                                text = l("prompter_theme", appLanguage),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                                modifier = Modifier.width(64.dp)
                             )
                             
-                            FilterChip(
-                                selected = isMirrorH,
-                                onClick = { isMirrorH = !isMirrorH },
-                                label = { Text(l("mirror_h", appLanguage), fontSize = 11.sp) },
-                                modifier = Modifier.testTag("prompter_mirror_h")
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "DARK" to l("theme_dark_prompter", appLanguage),
+                                    "AMBER" to l("theme_amber_prompter", appLanguage),
+                                    "BRIGHT" to l("theme_bright_prompter", appLanguage)
+                                ).forEach { (themeId, label) ->
+                                    val isSel = prompterTheme.value == themeId
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { prompterTheme.value = themeId },
+                                        label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
+                                    )
+                                }
+                            }
+                        }
 
-                            FilterChip(
-                                selected = isMirrorV,
-                                onClick = { isMirrorV = !isMirrorV },
-                                label = { Text(l("mirror_v", appLanguage), fontSize = 11.sp) }
+                        // Row 3: Font Selection
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (appLanguage == "ru") "Шрифт:" else "Font:",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                                modifier = Modifier.width(64.dp)
+                            )
+                            
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "SERIF" to (if (appLanguage == "ru") "Засечки" else "Serif"),
+                                    "SANS_SERIF" to (if (appLanguage == "ru") "Без засечек" else "Sans"),
+                                    "MONO" to (if (appLanguage == "ru") "Моно" else "Mono")
+                                ).forEach { (fontId, label) ->
+                                    val isSel = prompterFont == fontId
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { prompterFont = fontId },
+                                        label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Divider(
+                            color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.3f),
+                            thickness = 0.5.dp
+                        )
+
+                        // Row 4: Speed Slider Control
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = l("speed", appLanguage),
+                                tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = if (appLanguage == "ru") "Скорость" else "Speed",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
+                                modifier = Modifier.width(84.dp)
+                            )
+                            Slider(
+                                value = scrollSpeed,
+                                onValueChange = { scrollSpeed = it },
+                                valueRange = 1f..50f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "${scrollSpeed.toInt()}",
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.width(28.dp)
                             )
                         }
 
-                        Button(
-                            onClick = onClose,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError
-                            ),
-                            shape = RoundedCornerShape(12.dp)
+                        // Row 5: Text Size Slider Control
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.ExitToApp, "Exit", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(l("exit", appLanguage), fontSize = 12.sp)
+                            Icon(
+                                imageVector = Icons.Default.TextFields,
+                                contentDescription = "Text Size",
+                                tint = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = if (appLanguage == "ru") "Размер" else "Text Size",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.LightGray,
+                                modifier = Modifier.width(84.dp)
+                            )
+                            Slider(
+                                value = textFontSize,
+                                onValueChange = { textFontSize = it },
+                                valueRange = 16f..72f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "${textFontSize.toInt()}sp",
+                                color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurface else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.width(44.dp)
+                            )
+                        }
+
+                        Divider(
+                            color = (if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.outlineVariant else Color.DarkGray).copy(alpha = 0.3f),
+                            thickness = 0.5.dp
+                        )
+
+                        // Row 6: Mirror Controls & Close Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (appLanguage == "ru") "Зеркало:" else "Mirror:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (prompterTheme.value == "BRIGHT") MaterialTheme.colorScheme.onSurfaceVariant else Color.LightGray
+                                )
+                                
+                                FilterChip(
+                                    selected = isMirrorH,
+                                    onClick = { isMirrorH = !isMirrorH },
+                                    label = { Text(l("mirror_h", appLanguage), fontSize = 11.sp) },
+                                    modifier = Modifier.testTag("prompter_mirror_h")
+                                )
+
+                                FilterChip(
+                                    selected = isMirrorV,
+                                    onClick = { isMirrorV = !isMirrorV },
+                                    label = { Text(l("mirror_v", appLanguage), fontSize = 11.sp) }
+                                )
+                            }
+
+                            Button(
+                                onClick = onClose,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.ExitToApp, "Exit", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(l("exit", appLanguage), fontSize = 12.sp)
+                            }
                         }
                     }
                 }
@@ -5743,7 +6536,7 @@ fun AppSettingsScreen(
                     Surface(
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
-                            .clickable { viewModel.setAppLanguage(langCode) },
+                            .bounceClickable { viewModel.setAppLanguage(langCode) },
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer 
                                 else if (currTheme == "LIGHT") Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         border = BorderStroke(
@@ -5825,7 +6618,7 @@ fun AppSettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp))
-                            .clickable { onThemeChange(themeId) },
+                            .bounceClickable { onThemeChange(themeId) },
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer 
                                 else if (currTheme == "LIGHT") Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         border = BorderStroke(
@@ -5900,7 +6693,7 @@ fun AppSettingsScreen(
                             .padding(4.dp)
                             .clip(CircleShape)
                             .background(colorVal)
-                            .clickable { viewModel.setColorPalette(paletteId) },
+                            .bounceClickable { viewModel.setColorPalette(paletteId) },
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSelected) {
@@ -5937,7 +6730,7 @@ fun AppSettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp))
-                            .clickable { viewModel.setInterfaceStyle(styleId) },
+                            .bounceClickable { viewModel.setInterfaceStyle(styleId) },
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer 
                                 else if (currTheme == "LIGHT") Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         border = BorderStroke(
@@ -6108,6 +6901,38 @@ fun AppSettingsScreen(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(l("import_backup", appLanguage), fontSize = 12.sp, maxLines = 1)
                 }
+            }
+        }
+
+        // 7. SYNC TO TELEPHONE STORAGE
+        SettingsSectionCard(
+            icon = Icons.Outlined.Folder,
+            title = if (appLanguage == "ru") "Синхронизация папок с памятью" else "Storage Directory Synchronization",
+            subtitle = if (appLanguage == "ru") "Синхронизировать все папки и главы проектов в виде файлов во внутренней памяти телефона (в Documents/WriterStudioProjects)" else "Export and sync folders/documents as editable files in the phone internal memory"
+        ) {
+            Button(
+                onClick = {
+                    viewModel.syncProjectsToInternalMemory(context) { success, path ->
+                        if (success) {
+                            Toast.makeText(context, "Успешно! Файлы экспортированы в:\n$path", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Исключение при экспорте: $path", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("sync_projects_to_storage_btn"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            ) {
+                Icon(Icons.Filled.Sync, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (appLanguage == "ru") "Синхронизировать с памятью" else "Synchronize with local storage",
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
