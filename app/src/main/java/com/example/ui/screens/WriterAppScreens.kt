@@ -387,9 +387,7 @@ fun NavigationScaffold(
     } else if (selectedProj != null) {
         BackHandler {
             if (activeFolder != null) {
-                val parentId = activeFolder?.parentFolderId
-                val parentFolder = folders.find { it.id == parentId }
-                viewModel.selectFolder(parentFolder)
+                viewModel.navigateBackFolder()
             } else {
                 viewModel.selectProject(null)
             }
@@ -2113,10 +2111,7 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = {
                         if (activeFolder != null) {
-                            // Go back to parent folder
-                            val parentId = activeFolder?.parentFolderId
-                            val parentFolder = folders.find { it.id == parentId }
-                            viewModel.selectFolder(parentFolder)
+                            viewModel.navigateBackFolder()
                         } else {
                             onBack()
                         }
@@ -2670,26 +2665,53 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
         var folderName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateFolderDialog = false },
-            title = { Text(l("create_folder_title", appLanguage)) },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = l("create_folder_title", appLanguage),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
             text = {
                 OutlinedTextField(
                     value = folderName,
                     onValueChange = { folderName = it },
                     label = { Text(l("folder_name", appLanguage)) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("new_folder_name_input"),
+                    shape = RoundedCornerShape(12.dp)
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    if (folderName.isNotEmpty()) {
-                        viewModel.createFolder(folderName)
-                        showCreateFolderDialog = false
-                    }
-                }) { Text(l("create", appLanguage)) }
+                Button(
+                    onClick = {
+                        if (folderName.isNotEmpty()) {
+                            viewModel.createFolder(folderName)
+                            showCreateFolderDialog = false
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(l("create", appLanguage))
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateFolderDialog = false }) { Text(l("cancel", appLanguage)) }
-            }
+                TextButton(onClick = { showCreateFolderDialog = false }) {
+                    Text(l("cancel", appLanguage))
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 
@@ -2700,19 +2722,43 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
         var isPlainText by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showCreateDocumentDialog = false },
-            title = { Text(l("create_doc_title", appLanguage)) },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = l("create_doc_title", appLanguage),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     OutlinedTextField(
                         value = docName,
                         onValueChange = { docName = it },
                         label = { Text(l("doc_name", appLanguage)) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("new_document_name_input")
+                            .testTag("new_document_name_input"),
+                        shape = RoundedCornerShape(12.dp)
                     )
 
-                    Text(l("select_editor_mode", appLanguage), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        text = l("select_editor_mode", appLanguage),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2721,9 +2767,11 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                         Button(
                             onClick = { isPlainText = false },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!isPlainText) MaterialTheme.colorScheme.primary else Color.Gray
+                                containerColor = if (!isPlainText) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (!isPlainText) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(l("type_doc", appLanguage), fontSize = 11.sp, maxLines = 1)
                         }
@@ -2731,9 +2779,11 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                         Button(
                             onClick = { isPlainText = true },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isPlainText) MaterialTheme.colorScheme.primary else Color.Gray
+                                containerColor = if (isPlainText) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (isPlainText) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(l("type_txt", appLanguage), fontSize = 11.sp, maxLines = 1)
                         }
@@ -2742,7 +2792,7 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                     Text(
                         text = if (isPlainText) l("basic_mode_desc", appLanguage) else l("pro_mode_desc", appLanguage),
                         fontSize = 11.sp,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
             },
@@ -2754,12 +2804,18 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                             showCreateDocumentDialog = false
                         }
                     },
-                    modifier = Modifier.testTag("confirm_create_document_button")
-                ) { Text(l("create", appLanguage)) }
+                    modifier = Modifier.testTag("confirm_create_document_button"),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(l("create", appLanguage))
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDocumentDialog = false }) { Text(l("cancel", appLanguage)) }
-            }
+                TextButton(onClick = { showCreateDocumentDialog = false }) {
+                    Text(l("cancel", appLanguage))
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 
@@ -2769,10 +2825,23 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { documentToDelete = null },
             title = {
-                Text(
-                    text = if (appLanguage == "ru") "Удалить документ?" else "Delete Document?",
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Удалить документ?" else "Delete Document?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             },
             text = {
                 Text(
@@ -2780,7 +2849,8 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                         "Вы действительно хотите удалить документ \"${doc.title}\"? Это действие нельзя отменить."
                     } else {
                         "Are you sure you want to delete the document \"${doc.title}\"? This action cannot be undone."
-                    }
+                    },
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             },
             confirmButton = {
@@ -2791,7 +2861,8 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
-                    )
+                    ),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(if (appLanguage == "ru") "Удалить" else "Delete")
                 }
@@ -2800,7 +2871,8 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                 TextButton(onClick = { documentToDelete = null }) {
                     Text(l("cancel", appLanguage))
                 }
-            }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 
@@ -2810,10 +2882,23 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { folderToDelete = null },
             title = {
-                Text(
-                    text = if (appLanguage == "ru") "Удалить папку?" else "Delete Folder?",
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Удалить папку?" else "Delete Folder?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             },
             text = {
                 Text(
@@ -2821,7 +2906,8 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                         "Вы действительно хотите удалить папку \"${fold.name}\" и все её содержимое? Это действие нельзя отменить."
                     } else {
                         "Are you sure you want to delete the folder \"${fold.name}\" and all its contents? This action cannot be undone."
-                    }
+                    },
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             },
             confirmButton = {
@@ -2833,7 +2919,8 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
                     ),
-                    modifier = Modifier.testTag("confirm_delete_folder_btn")
+                    modifier = Modifier.testTag("confirm_delete_folder_btn"),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(if (appLanguage == "ru") "Удалить" else "Delete")
                 }
@@ -2842,7 +2929,8 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
                 TextButton(onClick = { folderToDelete = null }) {
                     Text(l("cancel", appLanguage))
                 }
-            }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 
@@ -2851,26 +2939,53 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
         var folderName by remember { mutableStateOf(renameInputText) }
         AlertDialog(
             onDismissRequest = { showRenameFolderDialog = false },
-            title = { Text(if (appLanguage == "ru") "Переименовать папку" else "Rename Folder") },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Переименовать папку" else "Rename Folder",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
             text = {
                 OutlinedTextField(
                     value = folderName,
                     onValueChange = { folderName = it },
                     label = { Text(l("folder_name", appLanguage)) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("rename_folder_input"),
+                    shape = RoundedCornerShape(12.dp)
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    if (folderName.isNotEmpty()) {
-                        viewModel.renameFolder(folderToRename!!, folderName)
-                        showRenameFolderDialog = false
-                    }
-                }) { Text(if (appLanguage == "ru") "Сохранить" else "Save") }
+                Button(
+                    onClick = {
+                        if (folderName.isNotEmpty()) {
+                            viewModel.renameFolder(folderToRename!!, folderName)
+                            showRenameFolderDialog = false
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (appLanguage == "ru") "Сохранить" else "Save")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameFolderDialog = false }) { Text(l("cancel", appLanguage)) }
-            }
+                TextButton(onClick = { showRenameFolderDialog = false }) {
+                    Text(l("cancel", appLanguage))
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 
@@ -2879,26 +2994,53 @@ fun ProjectWorkspaceScreen(viewModel: WriterViewModel, onBack: () -> Unit) {
         var docName by remember { mutableStateOf(renameInputText) }
         AlertDialog(
             onDismissRequest = { showRenameDocumentDialog = false },
-            title = { Text(if (appLanguage == "ru") "Переименовать файл" else "Rename Document") },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Переименовать файл" else "Rename Document",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
             text = {
                 OutlinedTextField(
                     value = docName,
                     onValueChange = { docName = it },
                     label = { Text(l("doc_name", appLanguage)) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("rename_document_input"),
+                    shape = RoundedCornerShape(12.dp)
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    if (docName.isNotEmpty()) {
-                        viewModel.renameDocumentInWorkspace(documentToRename!!, docName)
-                        showRenameDocumentDialog = false
-                    }
-                }) { Text(if (appLanguage == "ru") "Сохранить" else "Save") }
+                Button(
+                    onClick = {
+                        if (docName.isNotEmpty()) {
+                            viewModel.renameDocumentInWorkspace(documentToRename!!, docName)
+                            showRenameDocumentDialog = false
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (appLanguage == "ru") "Сохранить" else "Save")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameDocumentDialog = false }) { Text(l("cancel", appLanguage)) }
-            }
+                TextButton(onClick = { showRenameDocumentDialog = false }) {
+                    Text(l("cancel", appLanguage))
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 }
@@ -2945,6 +3087,15 @@ fun DocumentEditorScreen(
     var exportFontFamily by remember { mutableStateOf("SERIF") } // "SERIF", "SANS_SERIF", "MONOSPACE"
     var exportLineSpacing by remember { mutableStateOf(1.15f) } // 1.0f, 1.15f, 1.5f, 2.0f
     var exportIncludePageNumbers by remember { mutableStateOf(true) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameDocName by remember(document?.title, showRenameDialog) { mutableStateOf(document?.title ?: "") }
+    
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var createDocName by remember { mutableStateOf("") }
+    var createDocIsPlainText by remember { mutableStateOf(false) }
+    
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMoreActionsBottomSheet by remember { mutableStateOf(false) }
     val collapsedBlocks = remember { mutableStateOf(setOf<String>()) }
     val isKeyboardVisible = WindowInsets.isImeVisible
 
@@ -2988,6 +3139,675 @@ fun DocumentEditorScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PictureAsPdf,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Экспорт документа" else "Export Document",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // FORMAT SELECTOR
+                    Text(
+                        text = if (appLanguage == "ru") "Формат файла" else "File Format",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val formats = listOf("PDF", "DOCX", "RTF", "TXT")
+                        formats.forEach { fmt ->
+                            val isSel = exportFormat == fmt
+                            Button(
+                                onClick = { exportFormat = fmt },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f).testTag("export_format_$fmt"),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(fmt, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // PDF-Specific Layout Customizations
+                    if (exportFormat == "PDF") {
+                        androidx.compose.material3.HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        // PAGE SIZE
+                        Text(
+                            text = if (appLanguage == "ru") "Размер страницы" else "Page Size",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val sizes = listOf("A4", "LETTER")
+                            sizes.forEach { sz ->
+                                val isSel = exportPageSize == sz
+                                OutlinedButton(
+                                    onClick = { exportPageSize = sz },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    ),
+                                    modifier = Modifier.weight(1f).testTag("export_size_$sz"),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = if (sz == "LETTER") (if (appLanguage == "ru") "Letter (США)" else "Letter (US)") else "A4",
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        // FONT PREFERENCE
+                        Text(
+                            text = if (appLanguage == "ru") "Основной шрифт документа" else "Document Primary Font",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val fonts = listOf(
+                                "SERIF" to (if (appLanguage == "ru") "С засечками" else "Serif"),
+                                "SANS_SERIF" to (if (appLanguage == "ru") "Без засечек" else "Sans-Serif"),
+                                "MONOSPACE" to (if (appLanguage == "ru") "Моноширинный" else "Monospace")
+                            )
+                            fonts.forEach { (key, label) ->
+                                val isSel = exportFontFamily == key
+                                OutlinedButton(
+                                    onClick = { exportFontFamily = key },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    ),
+                                    modifier = Modifier.weight(1f).testTag("export_font_$key"),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(label, fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        // LINE SPACING MULTIPLIER
+                        Text(
+                            text = if (appLanguage == "ru") "Межстрочный интервал" else "Line Spacing",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val spacingOptions = listOf(
+                                1.0f to "1.0",
+                                1.15f to "1.15",
+                                1.5f to "1.5",
+                                2.0f to "2.0"
+                            )
+                            spacingOptions.forEach { (multiplier, label) ->
+                                val isSel = exportLineSpacing == multiplier
+                                OutlinedButton(
+                                    onClick = { exportLineSpacing = multiplier },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    ),
+                                    modifier = Modifier.weight(1f).testTag("export_spacing_$label"),
+                                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(label, fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        // PAGE NUMBERS
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { exportIncludePageNumbers = !exportIncludePageNumbers }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                val labelTxt = if (appLanguage == "ru") "Нумерация страниц" else "Include Page Numbers"
+                                val descTxt = if (appLanguage == "ru") "Печатать номера страниц внизу по центру" else "Draw page index centered in footer"
+                                Text(
+                                    text = labelTxt,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = descTxt,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = exportIncludePageNumbers,
+                                onCheckedChange = { exportIncludePageNumbers = it },
+                                modifier = Modifier.testTag("export_page_numbers_toggle")
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExportDialog = false
+                        val file = viewModel.exportCurrentDocument(
+                            context = context,
+                            format = exportFormat,
+                            pageSizeName = exportPageSize,
+                            fontPreference = exportFontFamily,
+                            lineSpacingMultiplier = exportLineSpacing,
+                            includePageNumbers = exportIncludePageNumbers
+                        )
+                        if (file != null) {
+                            try {
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = when (exportFormat) {
+                                        "PDF" -> "application/pdf"
+                                        "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                        "RTF" -> "application/rtf"
+                                        else -> "text/plain"
+                                    }
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(
+                                    Intent.createChooser(
+                                        intent,
+                                        if (appLanguage == "ru") "Экспортировать через" else "Export via"
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                Toast.makeText(
+                                    context,
+                                    if (appLanguage == "ru") "Ошибка отправки файла" else "Failed to send file",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            Toast.makeText(
+                                context,
+                                if (appLanguage == "ru") "Ошибка генерации файла" else "Failed to generate file",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (appLanguage == "ru") "Экспорт" else "Export File",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text(if (appLanguage == "ru") "Отмена" else "Cancel")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
+    }
+
+    // Unified Rename Dialog
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Переименовать документ" else "Rename Document",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
+            text = {
+                OutlinedTextField(
+                    value = renameDocName,
+                    onValueChange = { renameDocName = it },
+                    label = { Text(if (appLanguage == "ru") "Новое название" else "New Title") },
+                    modifier = Modifier.fillMaxWidth().testTag("rename_document_name_input_editor"),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (renameDocName.isNotBlank()) {
+                            viewModel.updateDocumentTitle(renameDocName)
+                            showRenameDialog = false
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (appLanguage == "ru") "Сохранить" else "Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text(if (appLanguage == "ru") "Отмена" else "Cancel")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
+    }
+
+    // Unified Create Dialog representing cohesive file operations
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Создать документ" else "Create Document",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedTextField(
+                        value = createDocName,
+                        onValueChange = { createDocName = it },
+                        label = { Text(if (appLanguage == "ru") "Название документа" else "Document Title") },
+                        modifier = Modifier.fillMaxWidth().testTag("new_document_name_input_editor"),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Выберите режим:" else "Select format:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { createDocIsPlainText = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!createDocIsPlainText) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (!createDocIsPlainText) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(if (appLanguage == "ru") "Блочный (Pro)" else "Block (Pro)", fontSize = 11.sp, maxLines = 1)
+                        }
+                        Button(
+                            onClick = { createDocIsPlainText = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (createDocIsPlainText) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (createDocIsPlainText) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(if (appLanguage == "ru") "Простой (Basic)" else "Text (Basic)", fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (createDocName.isNotBlank()) {
+                            viewModel.createDocument(createDocName, createDocIsPlainText)
+                            showCreateDialog = false
+                            createDocName = ""
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (appLanguage == "ru") "Создать" else "Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text(if (appLanguage == "ru") "Отмена" else "Cancel")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
+    }
+
+    // Unified Delete Dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (appLanguage == "ru") "Удалить документ?" else "Delete Document?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = if (appLanguage == "ru") {
+                        "Вы действительно хотите удалить документ \"${document?.title}\"? Это действие нельзя отменить."
+                    } else {
+                        "Are you sure you want to delete the document \"${document?.title}\"? This action cannot be undone."
+                    },
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteDialog = false
+                        document?.let { doc ->
+                            viewModel.deleteDocument(doc.id)
+                        }
+                        onBack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (appLanguage == "ru") "Удалить" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text(if (appLanguage == "ru") "Отмена" else "Cancel")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
+    }
+
+    if (showMoreActionsBottomSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMoreActionsBottomSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(start = 20.dp, end = 20.dp, bottom = 24.dp, top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (document?.isPlainText == true) Icons.AutoMirrored.Filled.Notes else Icons.Default.EditNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = document?.title ?: "",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (document?.isPlainText == true) {
+                                if (appLanguage == "ru") "Формат: Простой текст (Basic)" else "Format: Plain Text (Basic)"
+                            } else {
+                                if (appLanguage == "ru") "Формат: Блочный редактор (Pro)" else "Format: Block Editor (Pro)"
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                val menuItems = listOf(
+                    Triple(
+                        if (appLanguage == "ru") "Переименовать" else "Rename Document",
+                        if (appLanguage == "ru") "Изменить название текущего документа" else "Change the title of this document",
+                        Icons.Default.Edit
+                    ),
+                    Triple(
+                        if (appLanguage == "ru") "Создать документ" else "Create Document",
+                        if (appLanguage == "ru") "Создать новый пустой форматный файл" else "Start a new blank basic or pro file",
+                        Icons.Default.Add
+                    ),
+                    Triple(
+                        if (appLanguage == "ru") "Экспорт в PDF" else "Export to PDF",
+                        if (appLanguage == "ru") "Сохранить документ в файл формата PDF" else "Generate and share high-quality PDF",
+                        Icons.Filled.PictureAsPdf
+                    )
+                )
+
+                menuItems.forEach { (title, subtitle, icon) ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                showMoreActionsBottomSheet = false
+                                when (icon) {
+                                    Icons.Default.Edit -> showRenameDialog = true
+                                    Icons.Default.Add -> showCreateDialog = true
+                                    Icons.Filled.PictureAsPdf -> showExportDialog = true
+                                }
+                            },
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = title,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = title,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = subtitle,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            showMoreActionsBottomSheet = false
+                            showDeleteDialog = true
+                        },
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.2f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = if (appLanguage == "ru") "Удалить" else "Delete",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (appLanguage == "ru") "Удалить" else "Delete Document",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                text = if (appLanguage == "ru") "Безвозвратно удалить файл из хранилища" else "Permanently delete this document",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.4f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     if (document?.isPlainText == true) {
         // --- BASIC MODE / SIMPLE TXT WRITER ---
         val textFileContent = remember(blocks) {
@@ -2998,9 +3818,6 @@ fun DocumentEditorScreen(
         var textLineHeight by remember { mutableStateOf(24) }
         var textFontFamilyName by remember { mutableStateOf("SansSerif") }
         var isFormatSettingsVisible by remember { mutableStateOf(false) }
-        
-        var showRenameDialog by remember { mutableStateOf(false) }
-        var newTitle by remember(document?.title, showRenameDialog) { mutableStateOf(document?.title ?: "") }
 
         val basicScrollState = rememberScrollState()
         var localTextValue by remember { mutableStateOf(TextFieldValue(textFileContent)) }
@@ -3024,39 +3841,6 @@ fun DocumentEditorScreen(
         val fontLabel = if (appLanguage == "ru") "Шрифт" else "Font"
         val sizeLabel = if (appLanguage == "ru") "Размер" else "Size"
         val spacingLabel = if (appLanguage == "ru") "Интервал" else "Spacing"
-
-        if (showRenameDialog) {
-            AlertDialog(
-                onDismissRequest = { showRenameDialog = false },
-                title = { Text(if (appLanguage == "ru") "Переименовать документ" else "Rename Document") },
-                text = {
-                    OutlinedTextField(
-                        value = newTitle,
-                        onValueChange = { newTitle = it },
-                        label = { Text(if (appLanguage == "ru") "Название" else "Title") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            if (newTitle.isNotBlank()) {
-                                viewModel.updateDocumentTitle(newTitle)
-                            }
-                            showRenameDialog = false
-                        }
-                    ) {
-                        Text(if (appLanguage == "ru") "Сохранить" else "Save")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showRenameDialog = false }) {
-                        Text(if (appLanguage == "ru") "Отмена" else "Cancel")
-                    }
-                }
-            )
-        }
 
         Scaffold(
             topBar = {
@@ -3082,13 +3866,6 @@ fun DocumentEditorScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showRenameDialog = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Rename Document",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
                         IconButton(onClick = { isFormatSettingsVisible = !isFormatSettingsVisible }) {
                             Icon(
                                 imageVector = Icons.Default.TextFields,
@@ -3101,9 +3878,6 @@ fun DocumentEditorScreen(
                         }
                         IconButton(onClick = { isHistoryPanelVisible = !isHistoryPanelVisible }) {
                             Icon(Icons.Filled.History, l("versions", appLanguage))
-                        }
-                        IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
-                            Icon(Icons.Filled.Save, l("manual_save", appLanguage))
                         }
                         FilledIconButton(
                             onClick = onLaunchPrompter,
@@ -3120,6 +3894,14 @@ fun DocumentEditorScreen(
                                 imageVector = Icons.Filled.PlayArrow,
                                 contentDescription = l("prompter", appLanguage),
                                 modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(onClick = { showMoreActionsBottomSheet = true }, modifier = Modifier.testTag("editor_more_options_btn")) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = if (appLanguage == "ru") "Еще" else "More options",
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -3605,8 +4387,7 @@ fun DocumentEditorScreen(
                 }
             }
         }
-        return
-    }
+    } else {
 
     // Image Picker Result launcher
     val pickerLauncher = rememberLauncherForActivityResult(
@@ -3663,12 +4444,6 @@ fun DocumentEditorScreen(
                                     ),
                                     modifier = Modifier.weight(1f)
                                 )
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit title",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(16.dp)
-                                )
                             }
                         },
                         navigationIcon = {
@@ -3686,15 +4461,17 @@ fun DocumentEditorScreen(
                             IconButton(onClick = { isHistoryPanelVisible = !isHistoryPanelVisible }) {
                                 Icon(Icons.Filled.History, l("versions", appLanguage))
                             }
-                            IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
-                                Icon(Icons.Filled.Save, l("manual_save", appLanguage))
-                            }
-                            IconButton(onClick = { showExportDialog = true }, modifier = Modifier.testTag("editor_export_pdf_btn")) {
-                                Icon(Icons.Filled.PictureAsPdf, if (appLanguage == "ru") "Экспорт" else "Export")
-                            }
                             IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {
                                 Icon(Icons.Filled.PlayArrow, l("prompter", appLanguage))
                             }
+
+                             IconButton(onClick = { showMoreActionsBottomSheet = true }, modifier = Modifier.testTag("editor_more_options_btn_pro")) {
+                                 Icon(
+                                     imageVector = Icons.Default.MoreVert,
+                                     contentDescription = if (appLanguage == "ru") "Еще" else "More options",
+                                     tint = MaterialTheme.colorScheme.onSurface
+                                 )
+                             }
                         }
                     )
 
@@ -5303,286 +6080,10 @@ fun DocumentEditorScreen(
                     shape = RoundedCornerShape(24.dp)
                 )
             }
-
-            if (showExportDialog) {
-                AlertDialog(
-                    onDismissRequest = { showExportDialog = false },
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PictureAsPdf,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Text(
-                                text = if (appLanguage == "ru") "Экспорт документа" else "Export Document",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    },
-                    text = {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            // FORMAT SELECTOR
-                            Text(
-                                text = if (appLanguage == "ru") "Формат файла" else "File Format",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                val formats = listOf("PDF", "DOCX", "RTF", "TXT")
-                                formats.forEach { fmt ->
-                                    val isSel = exportFormat == fmt
-                                    Button(
-                                        onClick = { exportFormat = fmt },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        modifier = Modifier.weight(1f).testTag("export_format_$fmt"),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(fmt, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-
-                            // PDF-Specific Layout Customizations
-                            if (exportFormat == "PDF") {
-                                androidx.compose.material3.HorizontalDivider(
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                )
-
-                                // PAGE SIZE
-                                Text(
-                                    text = if (appLanguage == "ru") "Размер страницы" else "Page Size",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    val sizes = listOf("A4", "LETTER")
-                                    sizes.forEach { sz ->
-                                        val isSel = exportPageSize == sz
-                                        OutlinedButton(
-                                            onClick = { exportPageSize = sz },
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                                contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                            ),
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                width = 1.dp,
-                                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                            ),
-                                            modifier = Modifier.weight(1f).testTag("export_size_$sz"),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text(
-                                                text = if (sz == "LETTER") (if (appLanguage == "ru") "Letter (США)" else "Letter (US)") else "A4",
-                                                fontSize = 12.sp
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // FONT PREFERENCE
-                                Text(
-                                    text = if (appLanguage == "ru") "Основной шрифт документа" else "Document Primary Font",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    val fonts = listOf(
-                                        "SERIF" to (if (appLanguage == "ru") "С засечками" else "Serif"),
-                                        "SANS_SERIF" to (if (appLanguage == "ru") "Без засечек" else "Sans-Serif"),
-                                        "MONOSPACE" to (if (appLanguage == "ru") "Моноширинный" else "Monospace")
-                                    )
-                                    fonts.forEach { (key, label) ->
-                                        val isSel = exportFontFamily == key
-                                        OutlinedButton(
-                                            onClick = { exportFontFamily = key },
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                                contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                            ),
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                width = 1.dp,
-                                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                            ),
-                                            modifier = Modifier.weight(1f).testTag("export_font_$key"),
-                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text(label, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-
-                                // LINE SPACING MULTIPLIER
-                                Text(
-                                    text = if (appLanguage == "ru") "Межстрочный интервал" else "Line Spacing",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    val spacingOptions = listOf(
-                                        1.0f to "1.0",
-                                        1.15f to "1.15",
-                                        1.5f to "1.5",
-                                        2.0f to "2.0"
-                                    )
-                                    spacingOptions.forEach { (multiplier, label) ->
-                                        val isSel = exportLineSpacing == multiplier
-                                        OutlinedButton(
-                                            onClick = { exportLineSpacing = multiplier },
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                                contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                            ),
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                width = 1.dp,
-                                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                            ),
-                                            modifier = Modifier.weight(1f).testTag("export_spacing_$label"),
-                                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text(label, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-
-                                // PAGE NUMBERS
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { exportIncludePageNumbers = !exportIncludePageNumbers }
-                                        .padding(vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = if (appLanguage == "ru") "Нумерация страниц" else "Include Page Numbers",
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = if (appLanguage == "ru") "Печатать номера страниц внизу по центру" else "Draw page index centered in footer",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                        )
-                                    }
-                                    androidx.compose.material3.Switch(
-                                        checked = exportIncludePageNumbers,
-                                        onCheckedChange = { exportIncludePageNumbers = it },
-                                        modifier = Modifier.testTag("export_page_numbers_toggle")
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                showExportDialog = false
-                                val file = viewModel.exportCurrentDocument(
-                                    context = context,
-                                    format = exportFormat,
-                                    pageSizeName = exportPageSize,
-                                    fontPreference = exportFontFamily,
-                                    lineSpacingMultiplier = exportLineSpacing,
-                                    includePageNumbers = exportIncludePageNumbers
-                                )
-                                if (file != null) {
-                                    try {
-                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                        val intent = Intent(Intent.ACTION_SEND).apply {
-                                            type = when (exportFormat) {
-                                                "PDF" -> "application/pdf"
-                                                "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                                "RTF" -> "application/rtf"
-                                                else -> "text/plain"
-                                            }
-                                            putExtra(Intent.EXTRA_STREAM, uri)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(
-                                            Intent.createChooser(
-                                                intent,
-                                                if (appLanguage == "ru") "Экспортировать через" else "Export via"
-                                            )
-                                        )
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        Toast.makeText(
-                                            context,
-                                            if (appLanguage == "ru") "Ошибка отправки файла" else "Failed to send file",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        if (appLanguage == "ru") "Ошибка генерации файла" else "Failed to generate file",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (appLanguage == "ru") "Экспорт" else "Export File",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showExportDialog = false }) {
-                            Text(if (appLanguage == "ru") "Отмена" else "Cancel")
-                        }
-                    },
-                    shape = RoundedCornerShape(24.dp)
-                )
-            }
         }
     }
+}
+}
 }
 
 // --- IMMERSIVE TELEPROMPTER MODE SCREEN ---

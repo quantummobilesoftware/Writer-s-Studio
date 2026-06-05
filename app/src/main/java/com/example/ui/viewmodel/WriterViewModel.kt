@@ -361,6 +361,19 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         _activeDocument.value = null
     }
 
+    fun navigateBackFolder() {
+        val current = _selectedFolder.value
+        if (current != null) {
+            val parentId = current.parentFolderId
+            if (parentId == null) {
+                _selectedFolder.value = null
+            } else {
+                val parent = currentFolders.value.find { it.id == parentId }
+                _selectedFolder.value = parent
+            }
+        }
+    }
+
     fun createFolder(name: String) {
         val project = _selectedProject.value ?: return
         viewModelScope.launch {
