@@ -365,6 +365,8 @@ fun NavigationScaffold(
     val activeDoc by viewModel.activeDocument.collectAsStateWithLifecycle()
     val isPrompterMode = remember { mutableStateOf(false) }
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val activeFolder by viewModel.selectedFolder.collectAsStateWithLifecycle()
+    val folders by viewModel.currentFolders.collectAsStateWithLifecycle()
 
     fun selectTab(tab: String) {
         if (tabStack.lastOrNull() != tab) {
@@ -384,7 +386,13 @@ fun NavigationScaffold(
         }
     } else if (selectedProj != null) {
         BackHandler {
-            viewModel.selectProject(null)
+            if (activeFolder != null) {
+                val parentId = activeFolder?.parentFolderId
+                val parentFolder = folders.find { it.id == parentId }
+                viewModel.selectFolder(parentFolder)
+            } else {
+                viewModel.selectProject(null)
+            }
         }
     } else {
         BackHandler(enabled = tabStack.size > 1) {
@@ -2931,6 +2939,12 @@ fun DocumentEditorScreen(
     var isReadingMode by remember { mutableStateOf(false) }
     var readFontSizeScale by remember { mutableStateOf(16f) }
     var showAddBlockBottomSheet by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportFormat by remember { mutableStateOf("PDF") } // "PDF", "DOCX", "RTF", "TXT"
+    var exportPageSize by remember { mutableStateOf("A4") } // "A4", "LETTER"
+    var exportFontFamily by remember { mutableStateOf("SERIF") } // "SERIF", "SANS_SERIF", "MONOSPACE"
+    var exportLineSpacing by remember { mutableStateOf(1.15f) } // 1.0f, 1.15f, 1.5f, 2.0f
+    var exportIncludePageNumbers by remember { mutableStateOf(true) }
     val collapsedBlocks = remember { mutableStateOf(setOf<String>()) }
     val isKeyboardVisible = WindowInsets.isImeVisible
 
@@ -3674,6 +3688,9 @@ fun DocumentEditorScreen(
                             }
                             IconButton(onClick = { viewModel.saveActiveDocumentImmediate() }, modifier = Modifier.testTag("editor_manual_save_btn")) {
                                 Icon(Icons.Filled.Save, l("manual_save", appLanguage))
+                            }
+                            IconButton(onClick = { showExportDialog = true }, modifier = Modifier.testTag("editor_export_pdf_btn")) {
+                                Icon(Icons.Filled.PictureAsPdf, if (appLanguage == "ru") "Экспорт" else "Export")
                             }
                             IconButton(onClick = onLaunchPrompter, modifier = Modifier.testTag("editor_prompter_btn")) {
                                 Icon(Icons.Filled.PlayArrow, l("prompter", appLanguage))
@@ -5281,6 +5298,284 @@ fun DocumentEditorScreen(
                     confirmButton = {
                         TextButton(onClick = { showAddBlockBottomSheet = false }) {
                             Text(if (appLanguage == "ru") "Отмена" else "Close", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    shape = RoundedCornerShape(24.dp)
+                )
+            }
+
+            if (showExportDialog) {
+                AlertDialog(
+                    onDismissRequest = { showExportDialog = false },
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PictureAsPdf,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = if (appLanguage == "ru") "Экспорт документа" else "Export Document",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    text = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // FORMAT SELECTOR
+                            Text(
+                                text = if (appLanguage == "ru") "Формат файла" else "File Format",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val formats = listOf("PDF", "DOCX", "RTF", "TXT")
+                                formats.forEach { fmt ->
+                                    val isSel = exportFormat == fmt
+                                    Button(
+                                        onClick = { exportFormat = fmt },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.weight(1f).testTag("export_format_$fmt"),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(fmt, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // PDF-Specific Layout Customizations
+                            if (exportFormat == "PDF") {
+                                androidx.compose.material3.HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                )
+
+                                // PAGE SIZE
+                                Text(
+                                    text = if (appLanguage == "ru") "Размер страницы" else "Page Size",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val sizes = listOf("A4", "LETTER")
+                                    sizes.forEach { sz ->
+                                        val isSel = exportPageSize == sz
+                                        OutlinedButton(
+                                            onClick = { exportPageSize = sz },
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                                contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                width = 1.dp,
+                                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                            ),
+                                            modifier = Modifier.weight(1f).testTag("export_size_$sz"),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = if (sz == "LETTER") (if (appLanguage == "ru") "Letter (США)" else "Letter (US)") else "A4",
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // FONT PREFERENCE
+                                Text(
+                                    text = if (appLanguage == "ru") "Основной шрифт документа" else "Document Primary Font",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val fonts = listOf(
+                                        "SERIF" to (if (appLanguage == "ru") "С засечками" else "Serif"),
+                                        "SANS_SERIF" to (if (appLanguage == "ru") "Без засечек" else "Sans-Serif"),
+                                        "MONOSPACE" to (if (appLanguage == "ru") "Моноширинный" else "Monospace")
+                                    )
+                                    fonts.forEach { (key, label) ->
+                                        val isSel = exportFontFamily == key
+                                        OutlinedButton(
+                                            onClick = { exportFontFamily = key },
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                                contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                width = 1.dp,
+                                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                            ),
+                                            modifier = Modifier.weight(1f).testTag("export_font_$key"),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(label, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+
+                                // LINE SPACING MULTIPLIER
+                                Text(
+                                    text = if (appLanguage == "ru") "Межстрочный интервал" else "Line Spacing",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val spacingOptions = listOf(
+                                        1.0f to "1.0",
+                                        1.15f to "1.15",
+                                        1.5f to "1.5",
+                                        2.0f to "2.0"
+                                    )
+                                    spacingOptions.forEach { (multiplier, label) ->
+                                        val isSel = exportLineSpacing == multiplier
+                                        OutlinedButton(
+                                            onClick = { exportLineSpacing = multiplier },
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                                contentColor = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                width = 1.dp,
+                                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                            ),
+                                            modifier = Modifier.weight(1f).testTag("export_spacing_$label"),
+                                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(label, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+
+                                // PAGE NUMBERS
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { exportIncludePageNumbers = !exportIncludePageNumbers }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = if (appLanguage == "ru") "Нумерация страниц" else "Include Page Numbers",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (appLanguage == "ru") "Печатать номера страниц внизу по центру" else "Draw page index centered in footer",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                    androidx.compose.material3.Switch(
+                                        checked = exportIncludePageNumbers,
+                                        onCheckedChange = { exportIncludePageNumbers = it },
+                                        modifier = Modifier.testTag("export_page_numbers_toggle")
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showExportDialog = false
+                                val file = viewModel.exportCurrentDocument(
+                                    context = context,
+                                    format = exportFormat,
+                                    pageSizeName = exportPageSize,
+                                    fontPreference = exportFontFamily,
+                                    lineSpacingMultiplier = exportLineSpacing,
+                                    includePageNumbers = exportIncludePageNumbers
+                                )
+                                if (file != null) {
+                                    try {
+                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = when (exportFormat) {
+                                                "PDF" -> "application/pdf"
+                                                "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                                "RTF" -> "application/rtf"
+                                                else -> "text/plain"
+                                            }
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                intent,
+                                                if (appLanguage == "ru") "Экспортировать через" else "Export via"
+                                            )
+                                        )
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        Toast.makeText(
+                                            context,
+                                            if (appLanguage == "ru") "Ошибка отправки файла" else "Failed to send file",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        if (appLanguage == "ru") "Ошибка генерации файла" else "Failed to generate file",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (appLanguage == "ru") "Экспорт" else "Export File",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showExportDialog = false }) {
+                            Text(if (appLanguage == "ru") "Отмена" else "Cancel")
                         }
                     },
                     shape = RoundedCornerShape(24.dp)

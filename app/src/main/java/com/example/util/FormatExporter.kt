@@ -193,13 +193,24 @@ object FormatExporter {
         return if (blocks.isEmpty()) listOf(EditorBlock(type = "paragraph", text = "")) else blocks
     }
 
-    // --- PDF EXPORT (A4 page sizing natively compiled using Canvas layout) ---
-    fun exportToPdf(title: String, blocks: List<EditorBlock>, outputStream: OutputStream) {
+    // --- PDF EXPORT (A4/Letter page sizing natively compiled using Canvas layout) ---
+    fun exportToPdf(
+        title: String,
+        blocks: List<EditorBlock>,
+        outputStream: OutputStream,
+        pageSizeName: String = "A4", // "A4", "LETTER"
+        fontPreference: String = "SERIF", // "SERIF", "SANS_SERIF", "MONOSPACE"
+        lineSpacingMultiplier: Float = 1.15f,
+        includePageNumbers: Boolean = true
+    ) {
         val pdfDocument = PdfDocument()
         
-        // A4 Dimensions: 595 x 842 points (72 points/inch)
-        val pageWidth = 595
-        val pageHeight = 842
+        // Sizing
+        val (pageWidth, pageHeight) = if (pageSizeName.uppercase() == "LETTER") {
+            612 to 792 // Letter: 8.5" x 11" @ 72 points/inch
+        } else {
+            595 to 842 // A4: 595 x 842
+        }
         val margin = 54 // 0.75 in margin
         val contentWidth = pageWidth - (margin * 2)
 
@@ -228,10 +239,31 @@ object FormatExporter {
         canvas.drawText(title, margin.toFloat(), currentY + 30, titlePaint)
         currentY += 60f
 
+        val defaultTypeface = when (fontPreference.uppercase()) {
+            "MONOSPACE" -> Typeface.MONOSPACE
+            "SANS_SERIF" -> Typeface.SANS_SERIF
+            else -> Typeface.SERIF
+        }
+
+        fun drawPageNumber(canvas: Canvas, pageNum: Int, width: Int, height: Int, m: Int) {
+            val paint = Paint().apply {
+                color = android.graphics.Color.GRAY
+                textSize = 9f
+                isAntiAlias = true
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+            }
+            val text = "$pageNum"
+            val textWidth = paint.measureText(text)
+            canvas.drawText(text, (width - textWidth) / 2f, height - (m / 2f), paint)
+        }
+
         for (block in blocks) {
             if (block.type == "image") {
                 // If it is an image, draw a placeholder layout with caption offline
                 if (currentY + 120 > pageHeight - margin) {
+                    if (includePageNumbers) {
+                        drawPageNumber(canvas, pageNumber, pageWidth, pageHeight, margin)
+                    }
                     pdfDocument.finishPage(currentPage)
                     pageNumber++
                     myPageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
@@ -265,35 +297,82 @@ object FormatExporter {
             }
 
             // Apply style parameters dynamically
-            val blockTypeface = when {
-                block.type in listOf("h1", "h2", "h3") -> {
-                    textPaint.textSize = when (block.type) {
-                        "h1" -> 20f
-                        "h2" -> 16f
-                        else -> 14f
-                    }
-                    Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                }
-                else -> {
-                    textPaint.textSize = 12f
-                    val weight = if (block.style.isBold) Typeface.BOLD else Typeface.NORMAL
-                    val style = if (block.style.isItalic) Typeface.ITALIC else Typeface.NORMAL
-                    val styleFlag = when {
-                        block.style.isBold && block.style.isItalic -> Typeface.BOLD_ITALIC
-                        block.style.isBold -> Typeface.BOLD
-                        block.style.isItalic -> Typeface.ITALIC
-                        else -> Typeface.NORMAL
-                    }
-                    Typeface.create(Typeface.SERIF, styleFlag)
-                }
+            val blockType = block.type
+            val isScreenplayFont = blockType in listOf("character", "dialogue", "parenthetical", "scene", "transition")
+            
+            textPaint.textSize = when (blockType) {
+                "h1" -> 20f
+                "h2" -> 16f
+                "h3" -> 14f
+                "quote" -> 11f
+                "character" -> 12f
+                "scene" -> 12f
+                "transition" -> 12f
+                else -> 12f
             }
-            textPaint.typeface = blockTypeface
+
+            val isBold = when (blockType) {
+                "h1", "h2", "h3", "character", "scene" -> true
+                else -> block.style.isBold
+            }
+
+            val isItalic = when (blockType) {
+                "quote", "parenthetical" -> true
+                else -> block.style.isItalic
+            }
+
+            val styleFlag = when {
+                isBold && isItalic -> Typeface.BOLD_ITALIC
+                isBold -> Typeface.BOLD
+                isItalic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+
+            textPaint.typeface = if (isScreenplayFont) {
+                Typeface.create(Typeface.MONOSPACE, styleFlag)
+            } else {
+                Typeface.create(defaultTypeface, styleFlag)
+            }
+
+            if (block.style.textColorHex != "#000000") {
+                try {
+                    textPaint.color = android.graphics.Color.parseColor(block.style.textColorHex)
+                } catch (e: Exception) {
+                    textPaint.color = android.graphics.Color.BLACK
+                }
+            } else {
+                textPaint.color = android.graphics.Color.BLACK
+            }
 
             // Alignment mapping
-            val layoutAlignment = when (block.alignment) {
-                "CENTER" -> Layout.Alignment.ALIGN_CENTER
-                "RIGHT" -> Layout.Alignment.ALIGN_OPPOSITE
+            val layoutAlignment = when {
+                blockType == "character" || blockType == "parenthetical" -> Layout.Alignment.ALIGN_CENTER
+                block.alignment == "CENTER" -> Layout.Alignment.ALIGN_CENTER
+                block.alignment == "RIGHT" || blockType == "transition" -> Layout.Alignment.ALIGN_OPPOSITE
                 else -> Layout.Alignment.ALIGN_NORMAL
+            }
+
+            // Margin and width adjusting for screenplay formatting
+            var blockLeftMargin = margin.toFloat()
+            var blockContentWidth = contentWidth
+
+            when (blockType) {
+                "dialogue" -> {
+                    blockLeftMargin = margin.toFloat() + 60f
+                    blockContentWidth = contentWidth - 120
+                }
+                "parenthetical" -> {
+                    blockLeftMargin = margin.toFloat() + 80f
+                    blockContentWidth = contentWidth - 160
+                }
+                "character" -> {
+                    blockLeftMargin = margin.toFloat() + 100f
+                    blockContentWidth = contentWidth - 200
+                }
+                "transition" -> {
+                    blockLeftMargin = margin.toFloat()
+                    blockContentWidth = contentWidth
+                }
             }
 
             // Generate StaticLayout (supports multi-line auto breaking wrapping)
@@ -302,10 +381,10 @@ object FormatExporter {
                 0,
                 block.text.length,
                 textPaint,
-                contentWidth
+                blockContentWidth
             )
             .setAlignment(layoutAlignment)
-            .setLineSpacing(0f, block.style.lineSpacing)
+            .setLineSpacing(0f, lineSpacingMultiplier * block.style.lineSpacing)
             .setIncludePad(true)
             .build()
 
@@ -313,6 +392,9 @@ object FormatExporter {
 
             // Page overflow check
             if (currentY + blockHeight > pageHeight - margin) {
+                if (includePageNumbers) {
+                    drawPageNumber(canvas, pageNumber, pageWidth, pageHeight, margin)
+                }
                 pdfDocument.finishPage(currentPage)
                 pageNumber++
                 myPageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
@@ -322,13 +404,16 @@ object FormatExporter {
             }
 
             canvas.save()
-            canvas.translate(margin.toFloat(), currentY)
+            canvas.translate(blockLeftMargin, currentY)
             staticLayout.draw(canvas)
             canvas.restore()
 
             currentY += blockHeight + 15f // Space between paragraphs
         }
 
+        if (includePageNumbers) {
+            drawPageNumber(canvas, pageNumber, pageWidth, pageHeight, margin)
+        }
         pdfDocument.finishPage(currentPage)
         pdfDocument.writeTo(outputStream)
         pdfDocument.close()

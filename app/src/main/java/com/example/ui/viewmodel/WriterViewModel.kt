@@ -671,7 +671,14 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     }
 
     // --- Exports and Imports ---
-    fun exportCurrentDocument(context: Context, format: String): File? {
+    fun exportCurrentDocument(
+        context: Context,
+        format: String,
+        pageSizeName: String = "A4",
+        fontPreference: String = "SERIF",
+        lineSpacingMultiplier: Float = 1.15f,
+        includePageNumbers: Boolean = true
+    ): File? {
         val doc = _activeDocument.value ?: return null
         val blocks = _editorBlocks.value
         val dir = context.cacheDir
@@ -685,7 +692,15 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         try {
             val fos = FileOutputStream(file)
             when (format) {
-                "PDF" -> FormatExporter.exportToPdf(doc.title, blocks, fos)
+                "PDF" -> FormatExporter.exportToPdf(
+                    title = doc.title,
+                    blocks = blocks,
+                    outputStream = fos,
+                    pageSizeName = pageSizeName,
+                    fontPreference = fontPreference,
+                    lineSpacingMultiplier = lineSpacingMultiplier,
+                    includePageNumbers = includePageNumbers
+                )
                 "DOCX" -> FormatExporter.exportToDocx(doc.title, blocks, fos)
                 "RTF" -> FormatExporter.exportToRtf(blocks, fos)
                 else -> FormatExporter.exportToTxt(blocks, fos)
