@@ -189,7 +189,7 @@ fun WriterAppMainLayout(viewModel: WriterViewModel) {
         "ORANGE" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFFFB066) else Color(0xFFD35400)
         "RED" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFFF8A80) else Color(0xFF962D22)
         "CORAL" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFFE8B77) else Color(0xFFD85D4E)
-        "GREY" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFA1B0CB) else Color(0xFF5A6370)
+        "GREY" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFBEBEBE) else Color(0xFF707070)
         "YELLOW" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFFAD02C) else Color(0xFFB57C00)
         "PINK" -> if (themeMode == "DARK" || themeMode == "BLACK") Color(0xFFFF80AC) else Color(0xFFD81B60)
         else -> if (themeMode == "DARK" || themeMode == "BLACK") WriterThemeColors.PrimaryAmber else WriterThemeColors.SecondarySlate
@@ -934,7 +934,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
         var pTitle by remember { mutableStateOf("") }
         var pType by remember { mutableStateOf("BOOK") } // SCREENPLAY, BOOK, STORY, TEXT
         var pPassword by remember { mutableStateOf("") }
-        val colorsPalette = listOf("#6200EE", "#D32F2F", "#388E3C", "#1976D2", "#FBC02D", "#7B1FA2")
+        val colorsPalette = listOf("#6200EE", "#D32F2F", "#388E3C", "#1976D2", "#FBC02D", "#7B1FA2", "#808080")
         var selectedCol by remember { mutableStateOf("#6200EE") }
 
         androidx.compose.ui.window.Dialog(
@@ -7472,7 +7472,7 @@ fun AppSettingsScreen(
                     "ORANGE" to (if (currTheme == "LIGHT") Color(0xFFD35400) else Color(0xFFFFB74D)),
                     "RED" to (if (currTheme == "LIGHT") Color(0xFF962D22) else Color(0xFFFF8A80)),
                     "CORAL" to (if (currTheme == "LIGHT") Color(0xFFD85D4E) else Color(0xFFFE8B77)),
-                    "GREY" to (if (currTheme == "LIGHT") Color(0xFF5A6370) else Color(0xFFA1B0CB)),
+                    "GREY" to (if (currTheme == "LIGHT") Color(0xFF707070) else Color(0xFFBEBEBE)),
                     "YELLOW" to (if (currTheme == "LIGHT") Color(0xFFB57C00) else Color(0xFFFAD02C)),
                     "PINK" to (if (currTheme == "LIGHT") Color(0xFFD81B60) else Color(0xFFFF80AC))
                 )
