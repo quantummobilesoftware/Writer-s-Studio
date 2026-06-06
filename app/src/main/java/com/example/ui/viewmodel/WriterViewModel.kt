@@ -380,6 +380,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                             Log.w("GoogleSignIn", "[Session Check] Silent Sign-In failed: ${task.exception?.message}")
                             // Keep DB account anyway (sandbox/offline tolerance)
                             Log.d("GoogleSignIn", "[Session Check] Maintaining DB cached state as fallback to preserve unsynced local content.")
+                            syncAllWithDrive(context)
                         }
                     }
                 } catch (e: Exception) {
@@ -626,40 +627,46 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         if (email.isEmpty() || !_cloudSyncEnabled.value) return
 
         viewModelScope.launch {
-            val pending = repository.getPendingSyncProjectIds()
-            if (pending.isEmpty()) return@launch
+            if (_isSyncing.value) return@launch
+            _isSyncing.value = true
+            try {
+                val pending = repository.getPendingSyncProjectIds()
+                if (pending.isEmpty()) return@launch
 
-            val folderId = GoogleDriveService.getOrCreateAppFolder(context, email) ?: return@launch
-            val syncedSuccessfully = mutableSetOf<Long>()
+                val folderId = GoogleDriveService.getOrCreateAppFolder(context, email) ?: return@launch
+                val syncedSuccessfully = mutableSetOf<Long>()
 
-            for (pid in pending) {
-                try {
-                    val uuid = repository.getProjectUuid(pid)
-                    val projectContent = repository.serializeProjectToJson(pid)
-                    if (projectContent.isEmpty()) {
-                        syncedSuccessfully.add(pid)
-                        continue
+                for (pid in pending) {
+                    try {
+                        val uuid = repository.getProjectUuid(pid)
+                        val projectContent = repository.serializeProjectToJson(pid)
+                        if (projectContent.isEmpty()) {
+                            syncedSuccessfully.add(pid)
+                            continue
+                        }
+
+                        val existingFile = GoogleDriveService.findProjectFile(context, email, folderId, uuid)
+                        val success = if (existingFile != null) {
+                            GoogleDriveService.uploadFileMedia(context, email, existingFile.first, projectContent)
+                        } else {
+                            GoogleDriveService.createAndUploadProjectFile(context, email, folderId, uuid, projectContent)
+                        }
+
+                        if (success) {
+                            syncedSuccessfully.add(pid)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("WriterViewModel", "Failed to sync pending project $pid: ${e.message}")
                     }
-
-                    val existingFile = GoogleDriveService.findProjectFile(context, email, folderId, uuid)
-                    val success = if (existingFile != null) {
-                        GoogleDriveService.uploadFileMedia(context, email, existingFile.first, projectContent)
-                    } else {
-                        GoogleDriveService.createAndUploadProjectFile(context, email, folderId, uuid, projectContent)
-                    }
-
-                    if (success) {
-                        syncedSuccessfully.add(pid)
-                    }
-                } catch (e: Exception) {
-                    Log.e("WriterViewModel", "Failed to sync pending project $pid: ${e.message}")
                 }
-            }
 
-            if (syncedSuccessfully.isNotEmpty()) {
-                val updatedPending = repository.getPendingSyncProjectIds().toMutableSet()
-                updatedPending.removeAll(syncedSuccessfully)
-                repository.savePendingSyncProjectIds(updatedPending)
+                if (syncedSuccessfully.isNotEmpty()) {
+                    val updatedPending = repository.getPendingSyncProjectIds().toMutableSet()
+                    updatedPending.removeAll(syncedSuccessfully)
+                    repository.savePendingSyncProjectIds(updatedPending)
+                }
+            } finally {
+                _isSyncing.value = false
             }
         }
     }

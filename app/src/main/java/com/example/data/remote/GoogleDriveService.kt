@@ -24,7 +24,7 @@ object GoogleDriveService {
     private var isAuthFailedFallback = false
 
     private fun isSimulated(email: String): Boolean {
-        return email.contains("simulated") || email.contains("fake")
+        return email.contains("simulated") || email.contains("fake") || email.contains("sandbox")
     }
 
     private fun getSimulatedFile(context: Context, name: String): java.io.File {
@@ -111,10 +111,19 @@ object GoogleDriveService {
                 return@withContext "mock_folder_id_simulated"
             }
             val existingId = findAppFolder(context, email)
+            if (isAuthFailedFallback) {
+                Log.d(TAG, "[Simulation Fallback] getOrCreateAppFolder fell back to mock folder")
+                return@withContext "mock_folder_id_simulated"
+            }
             if (existingId != null) {
                 return@withContext existingId
             }
-            createAppFolder(context, email)
+            val createdId = createAppFolder(context, email)
+            if (isAuthFailedFallback || createdId == null) {
+                Log.d(TAG, "[Simulation Fallback] getOrCreateAppFolder fell back to mock folder during creation")
+                return@withContext "mock_folder_id_simulated"
+            }
+            createdId
         }
 
     private suspend fun findAppFolder(context: Context, email: String): String? =
