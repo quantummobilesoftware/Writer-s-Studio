@@ -28,6 +28,12 @@ class MainActivity : ComponentActivity() {
         // 4. Resolve ViewModel
         val viewModel = ViewModelProvider(this, factory)[WriterViewModel::class.java]
 
+        // 5. Initialize network sync listener for Google Drive
+        viewModel.initNetworkListener(this)
+
+        // 6. Automatically check and restore existing Google session
+        viewModel.checkAndRestoreGoogleSession(this)
+
         setContent {
             // Draw central composition
             WriterAppMainLayout(viewModel)

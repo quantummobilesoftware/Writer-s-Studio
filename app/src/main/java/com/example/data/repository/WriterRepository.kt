@@ -234,6 +234,25 @@ class WriterRepository(private val db: WriterDatabase) {
         settingsDao.saveSetting(AppSetting("cloud_sync_enabled", enabled.toString()))
     }
 
+    suspend fun getGoogleUserId(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("google_user_id") ?: ""
+    }
+
+    suspend fun saveGoogleUserId(id: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("google_user_id", id))
+    }
+
+    suspend fun getPendingSyncProjectIds(): Set<Long> = withContext(Dispatchers.IO) {
+        val str = settingsDao.getSetting("sync_pending_pids") ?: ""
+        if (str.isEmpty()) return@withContext emptySet()
+        str.split(",").mapNotNull { it.toLongOrNull() }.toSet()
+    }
+
+    suspend fun savePendingSyncProjectIds(ids: Set<Long>) = withContext(Dispatchers.IO) {
+        val str = ids.joinToString(",")
+        settingsDao.saveSetting(AppSetting("sync_pending_pids", str))
+    }
+
     // --- Productivity Statistics ---
     val statsFlow: Flow<List<ProductivityStat>> = statsDao.getAllStatsFlow()
 
@@ -527,4 +546,236 @@ class WriterRepository(private val db: WriterDatabase) {
     suspend fun getAllProjectsDirectList(): List<WorkspaceProject> = projectDao.getAllProjectsDirect()
     suspend fun getAllFoldersDirectList(): List<Folder> = folderDao.getAllFoldersDirect()
     suspend fun getAllDocumentsDirectList(): List<Document> = documentDao.getAllDocumentsDirect()
+
+    // --- Google Drive Synchronization Helpers ---
+    suspend fun getProjectUuid(projectId: Long): String = withContext(Dispatchers.IO) {
+        val existing = settingsDao.getSetting("drive_uuid_$projectId")
+        if (!existing.isNullOrEmpty()) return@withContext existing
+        val newUuid = java.util.UUID.randomUUID().toString()
+        settingsDao.saveSetting(AppSetting("drive_uuid_$projectId", newUuid))
+        newUuid
+    }
+
+    suspend fun getProjectIdByUuid(uuid: String): Long? = withContext(Dispatchers.IO) {
+        val settings = settingsDao.getAllSettingsDirect()
+        val matched = settings.firstOrNull { it.configKey.startsWith("drive_uuid_") && it.configValue == uuid } ?: return@withContext null
+        matched.configKey.removePrefix("drive_uuid_").toLongOrNull()
+    }
+
+    suspend fun serializeProjectToJson(projectId: Long): String = withContext(Dispatchers.IO) {
+        val project = getProjectById(projectId) ?: return@withContext ""
+        val folders = folderDao.getAllFoldersDirect().filter { it.projectId == projectId }
+        val documents = documentDao.getAllProjectDocuments(projectId)
+        val uuid = getProjectUuid(projectId)
+
+        val root = JSONObject()
+        root.put("uuid", uuid)
+        root.put("title", project.title)
+        root.put("type", project.type)
+        root.put("colorHex", project.colorHex)
+        root.put("isFavorite", project.isFavorite)
+        root.put("isArchived", project.isArchived)
+        root.put("isInTrash", project.isInTrash)
+        root.put("passwordHash", project.passwordHash ?: "")
+        root.put("createdAt", project.createdAt)
+        root.put("updatedAt", project.updatedAt)
+        root.put("sortOrder", project.sortOrder)
+
+        // Folders
+        val foldersArr = JSONArray()
+        for (f in folders) {
+            foldersArr.put(JSONObject().apply {
+                put("id", f.id)
+                put("name", f.name)
+                put("parentFolderId", f.parentFolderId ?: -1L)
+                put("createdAt", f.createdAt)
+                put("sortOrder", f.sortOrder)
+            })
+        }
+        root.put("folders", foldersArr)
+
+        // Documents
+        val docsArr = JSONArray()
+        for (d in documents) {
+            docsArr.put(JSONObject().apply {
+                put("id", d.id)
+                put("folderId", d.folderId ?: -1L)
+                put("title", d.title)
+                put("contentBlocksJson", d.contentBlocksJson)
+                put("sortOrder", d.sortOrder)
+                put("passwordHash", d.passwordHash ?: "")
+                put("isPlainText", d.isPlainText)
+                put("createdAt", d.createdAt)
+                put("updatedAt", d.updatedAt)
+            })
+        }
+        root.put("documents", docsArr)
+
+        root.toString()
+    }
+
+    suspend fun importProjectFromJson(jsonString: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val root = JSONObject(jsonString)
+            val uuid = root.getString("uuid")
+            val title = root.getString("title")
+            val type = root.optString("type", "BOOK")
+            val colorHex = root.optString("colorHex", "#6200EE")
+            val isFavorite = root.optBoolean("isFavorite", false)
+            val isArchived = root.optBoolean("isArchived", false)
+            val isInTrash = root.optBoolean("isInTrash", false)
+            val passwordHash = root.optString("passwordHash").ifEmpty { null }
+            val createdAt = root.optLong("createdAt", System.currentTimeMillis())
+            val updatedAt = root.optLong("updatedAt", System.currentTimeMillis())
+            val sortOrder = root.optInt("sortOrder", 0)
+
+            val existingProjectId = getProjectIdByUuid(uuid)
+            val localProjectId: Long
+
+            if (existingProjectId != null) {
+                val existingProj = getProjectById(existingProjectId)
+                if (existingProj != null) {
+                    if (existingProj.updatedAt >= updatedAt) {
+                        android.util.Log.d("WriterRepository", "Local project $existingProjectId is up-to-date or newer. Skipping import.")
+                        return@withContext true
+                    }
+
+                    val updatedProj = existingProj.copy(
+                        title = title,
+                        type = type,
+                        colorHex = colorHex,
+                        isFavorite = isFavorite,
+                        isArchived = isArchived,
+                        isInTrash = isInTrash,
+                        passwordHash = passwordHash,
+                        createdAt = createdAt,
+                        updatedAt = updatedAt,
+                        sortOrder = sortOrder
+                    )
+                    projectDao.insertProject(updatedProj)
+                    localProjectId = existingProjectId
+
+                    val existingFolders = folderDao.getAllFoldersDirect().filter { it.projectId == localProjectId }
+                    for (f in existingFolders) {
+                        folderDao.deleteFolder(f.id)
+                    }
+                    val existingDocs = documentDao.getAllProjectDocuments(localProjectId)
+                    for (d in existingDocs) {
+                        documentDao.deleteDocument(d.id)
+                    }
+                } else {
+                    settingsDao.saveSetting(AppSetting("drive_uuid_$existingProjectId", ""))
+                    val proj = WorkspaceProject(
+                        title = title,
+                        type = type,
+                        colorHex = colorHex,
+                        isFavorite = isFavorite,
+                        isArchived = isArchived,
+                        isInTrash = isInTrash,
+                        passwordHash = passwordHash,
+                        createdAt = createdAt,
+                        updatedAt = updatedAt,
+                        sortOrder = sortOrder
+                    )
+                    localProjectId = projectDao.insertProject(proj)
+                    settingsDao.saveSetting(AppSetting("drive_uuid_$localProjectId", uuid))
+                }
+            } else {
+                val proj = WorkspaceProject(
+                    title = title,
+                    type = type,
+                    colorHex = colorHex,
+                    isFavorite = isFavorite,
+                    isArchived = isArchived,
+                    isInTrash = isInTrash,
+                    passwordHash = passwordHash,
+                    createdAt = createdAt,
+                    updatedAt = updatedAt,
+                    sortOrder = sortOrder
+                )
+                localProjectId = projectDao.insertProject(proj)
+                settingsDao.saveSetting(AppSetting("drive_uuid_$localProjectId", uuid))
+            }
+
+            // Folders import list
+            val foldersArr = root.optJSONArray("folders") ?: JSONArray()
+            val folderIdMap = mutableMapOf<Long, Long>()
+
+            val rawFolders = mutableListOf<JSONObject>()
+            for (i in 0 until foldersArr.length()) {
+                rawFolders.add(foldersArr.getJSONObject(i))
+            }
+
+            var progress = true
+            while (rawFolders.isNotEmpty() && progress) {
+                progress = false
+                val iterator = rawFolders.iterator()
+                while (iterator.hasNext()) {
+                    val fObj = iterator.next()
+                    val originalId = fObj.getLong("id")
+                    val parentIdRaw = fObj.getLong("parentFolderId")
+
+                    val hasParent = parentIdRaw != -1L
+                    val isParentInserted = !hasParent || folderIdMap.containsKey(parentIdRaw)
+
+                    if (isParentInserted) {
+                        val resolvedParentId = if (hasParent) folderIdMap[parentIdRaw] else null
+                        val newFolder = Folder(
+                            projectId = localProjectId,
+                            name = fObj.getString("name"),
+                            parentFolderId = resolvedParentId,
+                            createdAt = fObj.optLong("createdAt", System.currentTimeMillis()),
+                            sortOrder = fObj.optInt("sortOrder", 0)
+                        )
+                        val insertedFolderId = folderDao.insertFolder(newFolder)
+                        folderIdMap[originalId] = insertedFolderId
+                        iterator.remove()
+                        progress = true
+                    }
+                }
+
+                if (!progress && rawFolders.isNotEmpty()) {
+                    val fObj = rawFolders.removeAt(0)
+                    val originalId = fObj.getLong("id")
+                    val newFolder = Folder(
+                        projectId = localProjectId,
+                        name = fObj.getString("name"),
+                        parentFolderId = null,
+                        createdAt = fObj.optLong("createdAt", System.currentTimeMillis()),
+                        sortOrder = fObj.optInt("sortOrder", 0)
+                    )
+                    val insertedFolderId = folderDao.insertFolder(newFolder)
+                    folderIdMap[originalId] = insertedFolderId
+                    progress = true
+                }
+            }
+
+            // Documents import list
+            val docsArr = root.optJSONArray("documents") ?: JSONArray()
+            for (i in 0 until docsArr.length()) {
+                val dObj = docsArr.getJSONObject(i)
+                val originalFolderId = dObj.getLong("folderId")
+                val resolvedFolderId = if (originalFolderId != -1L) folderIdMap[originalFolderId] else null
+
+                val newDoc = Document(
+                    projectId = localProjectId,
+                    folderId = resolvedFolderId,
+                    title = dObj.getString("title"),
+                    contentBlocksJson = dObj.getString("contentBlocksJson"),
+                    sortOrder = dObj.optInt("sortOrder", 0),
+                    passwordHash = dObj.optString("passwordHash").ifEmpty { null },
+                    isPlainText = dObj.optBoolean("isPlainText", false),
+                    createdAt = dObj.optLong("createdAt", System.currentTimeMillis()),
+                    updatedAt = dObj.optLong("updatedAt", System.currentTimeMillis())
+                )
+                documentDao.insertDocument(newDoc)
+            }
+
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
 }
+

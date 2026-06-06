@@ -523,9 +523,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
     var showAccountDialog by remember { mutableStateOf(false) }
     val authorName by viewModel.authorName.collectAsStateWithLifecycle()
     val authorBio by viewModel.authorBio.collectAsStateWithLifecycle()
-    val authorEmail by viewModel.authorEmail.collectAsStateWithLifecycle()
     val authorAvatar by viewModel.authorAvatar.collectAsStateWithLifecycle()
-    val cloudSyncEnabled by viewModel.cloudSyncEnabled.collectAsStateWithLifecycle()
     val statsList by viewModel.statistics.collectAsStateWithLifecycle()
 
     var projectToRename by remember { mutableStateOf<WorkspaceProject?>(null) }
@@ -563,7 +561,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                 ),
                 navigationIcon = {
                     val iconVector = Icons.Outlined.AccountCircle
-                    val contentDescription = "Account Settings"
+                    val contentDescription = "Profile Settings"
                     
                     if (interfaceStyle == "PIXEL") {
                         Box(
@@ -1216,10 +1214,13 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
     }
 
     if (showAccountDialog) {
+        val googleUserId by viewModel.googleUserId.collectAsStateWithLifecycle()
+        val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+        val cloudSyncEnabled by viewModel.cloudSyncEnabled.collectAsStateWithLifecycle()
+        val authorEmail by viewModel.authorEmail.collectAsStateWithLifecycle()
+
         var editName by remember { mutableStateOf(authorName) }
         var editBio by remember { mutableStateOf(authorBio) }
-        var editEmail by remember { mutableStateOf(authorEmail) }
-        var editCloudSync by remember { mutableStateOf(cloudSyncEnabled) }
         var editAvatarPath by remember { mutableStateOf(authorAvatar) }
         
         val localContext = LocalContext.current
@@ -1231,6 +1232,77 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                 if (copiedPath != null) {
                     editAvatarPath = copiedPath
                 }
+            }
+        }
+
+        var authErrorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+        val getAppSha1: (Context) -> String = { ctx ->
+            try {
+                val packageManager = ctx.packageManager
+                val packageName = ctx.packageName
+                @Suppress("DEPRECATION")
+                val packageInfo = packageManager.getPackageInfo(
+                    packageName, 
+                    android.content.pm.PackageManager.GET_SIGNATURES
+                )
+                @Suppress("DEPRECATION")
+                val signatures = packageInfo.signatures
+                if (signatures != null && signatures.isNotEmpty()) {
+                    val sig = signatures[0]
+                    val md = java.security.MessageDigest.getInstance("SHA-1")
+                    val digest = md.digest(sig.toByteArray())
+                    val sb = StringBuilder()
+                    for (b in digest) {
+                        sb.append(String.format("%02X:", b))
+                    }
+                    if (sb.isNotEmpty()) sb.setLength(sb.length - 1)
+                    sb.toString()
+                } else {
+                    "No signatures found"
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GoogleSignIn", "Error getting SHA-1 Signature", e)
+                "Error: ${e.message}"
+            }
+        }
+
+        val googleSignInLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            android.util.Log.d("GoogleSignIn", "[Auth Result] Received result from Google Sign-In activity. ResultCode: ${result.resultCode}")
+            val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            try {
+                val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
+                if (account != null) {
+                    val email = account.email ?: ""
+                    val displayName = account.displayName ?: "Google User"
+                    val photoUrl = account.photoUrl?.toString() ?: ""
+                    val gId = account.id ?: ""
+                    android.util.Log.i("GoogleSignIn", "[Auth Succeeded] Selected Account: Email='$email', Name='$displayName', ID='$gId'")
+
+                    viewModel.linkGoogleAccount(localContext, gId, displayName, email, photoUrl)
+                    editName = displayName
+                    editAvatarPath = photoUrl
+                } else {
+                    android.util.Log.w("GoogleSignIn", "[Auth Succeeded Null] Google result succeeded but returned completely empty account.")
+                    authErrorDialogMessage = "Received empty account session from Google API."
+                }
+            } catch (e: com.google.android.gms.common.api.ApiException) {
+                val statusCode = e.statusCode
+                val statusMessage = com.google.android.gms.common.api.CommonStatusCodes.getStatusCodeString(statusCode)
+                android.util.Log.e("GoogleSignIn", "[Auth Failed] ApiException code=$statusCode ($statusMessage). message=${e.message}", e)
+                
+                authErrorDialogMessage = when (statusCode) {
+                    10 -> "Google Sign-In returned Code 10 (DEVELOPER_ERROR).\n\n" +
+                            "This means the SHA-1 of your signing key (${getAppSha1(localContext)}) or App Package Name (com.aistudio.writerstudio.gmqfkv) is not registered in the Google Developer Console Client IDs."
+                    7 -> "Network error during Google Sign-In. Please check your connection."
+                    12501 -> "Google Sign-In was cancelled by the user."
+                    else -> "Google API ApiException: ${e.message} (Code $statusCode: $statusMessage)"
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GoogleSignIn", "[Auth Failed] General unexpected Exception: ${e.message}", e)
+                authErrorDialogMessage = "An error occurred during Google Auth: ${e.message}"
             }
         }
         
@@ -1253,6 +1325,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                     ) { showAccountDialog = false },
                 contentAlignment = Alignment.Center
             ) {
+                val containerColorVal = MaterialTheme.colorScheme.primaryContainer
                 Surface(
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
@@ -1263,318 +1336,806 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             indication = null
                         ) {}
                         .wrapContentHeight(),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(28.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
+                    tonalElevation = 12.dp
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp)
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .drawBehind {
+                                val gradientBrush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        containerColorVal.copy(alpha = 0.25f),
+                                        containerColorVal.copy(alpha = 0.02f),
+                                        Color.Transparent
+                                    ),
+                                    startY = 0f,
+                                    endY = 120.dp.toPx()
+                                )
+                                drawRect(
+                                    brush = gradientBrush,
+                                    size = size.copy(height = 120.dp.toPx())
+                                )
+                            }
                     ) {
-                        // Title Header
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = when (appLanguage) {
-                                    "ru" -> "Профиль Автора"
-                                    "es" -> "Perfil de Autor"
-                                    else -> "Author Profile"
-                                },
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.align(Alignment.CenterStart),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            IconButton(
-                                onClick = { showAccountDialog = false },
-                                modifier = Modifier.align(Alignment.CenterEnd)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Avatar
-                        Box(
-                            modifier = Modifier
-                                .size(84.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                                .bounceClickable { avatarPickerLauncher.launch("image/*") }
-                                .testTag("select_avatar_trigger"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (editAvatarPath.isNotEmpty()) {
-                                AsyncImage(
-                                    model = editAvatarPath,
-                                    contentDescription = "Profile Picture",
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Text(
-                                    text = if (editName.isNotEmpty()) editName.take(1).uppercase() else "A",
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    fontWeight = FontWeight.Black,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .align(Alignment.BottomEnd),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                            }
-                        }
-
-                        // Stats Card row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = totalWords.toString(),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = when (appLanguage) {
-                                            "ru" -> "Всего слов"
-                                            "es" -> "Palabras"
-                                            else -> "Total words"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Folder,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = totalProjectsCount.toString(),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = when (appLanguage) {
-                                            "ru" -> "Проектов"
-                                            "es" -> "Proyectos"
-                                            else -> "Projects"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                        }
-
-                        // Text fields to edit profile properties
-                        OutlinedTextField(
-                            value = editName,
-                            onValueChange = { editName = it },
-                            label = {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Псевдоним / Имя"
-                                        "es" -> "Seudónimo"
-                                        else -> "Pen Name"
-                                    }
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("profile_name_input"),
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        )
-
-                        OutlinedTextField(
-                            value = editBio,
-                            onValueChange = { editBio = it },
-                            label = {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Девиз / О себе"
-                                        "es" -> "Biografía"
-                                        else -> "Motto / Bio"
-                                    }
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("profile_bio_input"),
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(Icons.Default.Create, null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        )
-
-                        OutlinedTextField(
-                            value = editEmail,
-                            onValueChange = { editEmail = it },
-                            label = {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Email аккаунта"
-                                        "es" -> "Email de cuenta"
-                                        else -> "Account Email"
-                                    }
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("profile_email_input"),
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Cloud Sync setting card item
-                        Card(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .testTag("cloud_sync_toggle_container"),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            )
+                                .padding(24.dp)
+                                .verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(20.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            // Header segment containing Title and Close IconButton
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Cloud,
-                                    contentDescription = "Cloud Sync",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
                                 Column(
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.fillMaxWidth().padding(end = 40.dp),
+                                    horizontalAlignment = Alignment.Start
                                 ) {
                                     Text(
                                         text = when (appLanguage) {
-                                            "ru" -> "Облачная синхронизация"
-                                            "es" -> "Sincronización en la nube"
-                                            else -> "Cloud Sync"
+                                            "ru" -> "Профиль Автора"
+                                            "es" -> "Perfil de Autor"
+                                            else -> "Author Profile"
                                         },
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = when (appLanguage) {
-                                            "ru" -> "Резервное копирование проектов"
-                                            "es" -> "Copia de seguridad remota"
-                                            else -> "Backup projects with remote storage"
+                                            "ru" -> "Ваша творческая визитная карточка"
+                                            "es" -> "Tu firma creativa"
+                                            else -> "Your creative signature"
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                     )
                                 }
-                                androidx.compose.material3.Switch(
-                                    checked = editCloudSync,
-                                    onCheckedChange = { editCloudSync = it },
-                                    modifier = Modifier.testTag("cloud_sync_switch")
+                                IconButton(
+                                    onClick = { showAccountDialog = false },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                            shape = CircleShape
+                                        )
+                                        .size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            // Modern dual-ring Avatar area
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(96.dp)
+                                        .bounceClickable { avatarPickerLauncher.launch("image/*") }
+                                        .testTag("select_avatar_trigger"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape)
+                                            .padding(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (editAvatarPath.isNotEmpty()) {
+                                                AsyncImage(
+                                                    model = editAvatarPath,
+                                                    contentDescription = "Profile Picture",
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = if (editName.isNotEmpty()) editName.take(1).uppercase() else "A",
+                                                    style = MaterialTheme.typography.headlineLarge,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
+                                    Surface(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .size(28.dp),
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        tonalElevation = 4.dp,
+                                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit photo",
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                
+                                Text(
+                                    text = when (appLanguage) {
+                                        "ru" -> "Изменить фото"
+                                        "es" -> "Cambiar foto"
+                                        else -> "Change photo"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clickable { avatarPickerLauncher.launch("image/*") }
+                                        .padding(vertical = 2.dp)
                                 )
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Action buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedButton(
-                                onClick = { showAccountDialog = false },
-                                modifier = Modifier.weight(1f).height(48.dp)
+                            // Sleek inline Statistics Bar
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                )
                             ) {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Отмена"
-                                        "es" -> "Cancelar"
-                                        else -> "Cancel"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = totalWords.toString(),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = when (appLanguage) {
+                                                "ru" -> "Всего слов"
+                                                "es" -> "Palabras"
+                                                else -> "Total words"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
                                     }
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .height(32.dp)
+                                            .width(1.dp)
+                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    )
+                                    
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = totalProjectsCount.toString(),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = when (appLanguage) {
+                                                "ru" -> "Проектов"
+                                                "es" -> "Proyectos"
+                                                else -> "Projects"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Form input text fields
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = editName,
+                                    onValueChange = { editName = it },
+                                    label = {
+                                        Text(
+                                            when (appLanguage) {
+                                                "ru" -> "Псевдоним / Имя писателя"
+                                                "es" -> "Seudónimo"
+                                                else -> "Pen Name"
+                                            }
+                                        )
+                                    },
+                                    placeholder = {
+                                        Text(
+                                            when (appLanguage) {
+                                                "ru" -> "Введите псевдоним"
+                                                "es" -> "Introduce un seudónimo"
+                                                else -> "Enter short pen name"
+                                            }
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("profile_name_input"),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Person,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                                    )
+                                )
+
+                                OutlinedTextField(
+                                    value = editBio,
+                                    onValueChange = { editBio = it },
+                                    label = {
+                                        Text(
+                                            when (appLanguage) {
+                                                "ru" -> "Девиз или О себе"
+                                                "es" -> "Biografía / Lema"
+                                                else -> "Motto or Bio"
+                                            }
+                                        )
+                                    },
+                                    placeholder = {
+                                        Text(
+                                            when (appLanguage) {
+                                                "ru" -> "Ваше творческое кредо..."
+                                                "es" -> "Tu credo creativo..."
+                                                else -> "Your creative motto..."
+                                            }
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("profile_bio_input"),
+                                    shape = RoundedCornerShape(14.dp),
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                                    )
                                 )
                             }
-                            Button(
-                                onClick = {
-                                    viewModel.setAuthorProfile(editName, editBio, editEmail)
-                                    viewModel.setAuthorAvatar(editAvatarPath)
-                                    viewModel.setCloudSyncEnabled(editCloudSync)
-                                    showAccountDialog = false
-                                },
-                                modifier = Modifier.weight(1f).height(48.dp).testTag("save_profile_button")
+
+                            // Google Sync & Account Management Card
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("google_sync_card"),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                ),
+                                shape = RoundedCornerShape(16.dp)
                             ) {
-                                Text(
-                                    when (appLanguage) {
-                                        "ru" -> "Сохранить"
-                                        "es" -> "Guardar"
-                                        else -> "Save"
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Cloud,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = when (appLanguage) {
+                                                "ru" -> "Синхронизация Google Drive"
+                                                "es" -> "Sincronización de Google Drive"
+                                                else -> "Google Drive Sync"
+                                            },
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (isSyncing) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     }
-                                )
+
+                                    if (googleUserId.isNotEmpty()) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            // Connected Account Card Layout
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                                                        RoundedCornerShape(12.dp)
+                                                    )
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                // User Profile Photo
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(48.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (authorAvatar.isNotEmpty()) {
+                                                        androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                                                            coil.compose.AsyncImage(
+                                                                model = authorAvatar,
+                                                                contentDescription = "Avatar",
+                                                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Icon(
+                                                            imageVector = Icons.Default.AccountCircle,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(32.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                // User metadata info
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = if (authorName.isNotEmpty()) authorName else "Google User",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        text = authorEmail,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(6.dp)
+                                                                .clip(CircleShape)
+                                                                .background(
+                                                                    if (isSyncing) MaterialTheme.colorScheme.primary 
+                                                                    else Color(0xFF4CAF50)
+                                                                )
+                                                        )
+                                                        Text(
+                                                            text = if (isSyncing) {
+                                                                when (appLanguage) {
+                                                                    "ru" -> "Синхронизация..."
+                                                                    "es" -> "Sincronizando..."
+                                                                    else -> "Syncing..."
+                                                                }
+                                                            } else {
+                                                                when (appLanguage) {
+                                                                    "ru" -> "Подключено"
+                                                                    "es" -> "Conectado"
+                                                                    else -> "Connected"
+                                                                }
+                                                            },
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Sync Toggles / Switches
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = when (appLanguage) {
+                                                        "ru" -> "Резервное копирование"
+                                                        "es" -> "Sincronización"
+                                                        else -> "Auto-Backup Enabled"
+                                                    },
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Switch(
+                                                    checked = cloudSyncEnabled,
+                                                    onCheckedChange = { viewModel.setCloudSyncEnabled(it) },
+                                                    modifier = Modifier.testTag("sync_switch")
+                                                )
+                                            }
+
+                                            // Action Buttons Row (Sync, Switch Account, Sign Out)
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                // Sync Now button
+                                                Button(
+                                                    onClick = { 
+                                                        android.util.Log.i("GoogleSignIn", "[Sync Action] User clicked Sync Now button manually.")
+                                                        viewModel.syncAllWithDrive(localContext) 
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(38.dp)
+                                                        .testTag("sync_now_button"),
+                                                    shape = RoundedCornerShape(19.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primary,
+                                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                                    )
+                                                ) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.Center,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Refresh,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = when (appLanguage) {
+                                                                "ru" -> "Синхронизировать сейчас"
+                                                                "es" -> "Sincronizar ahora"
+                                                                else -> "Sync Now"
+                                                            },
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    // Switch Account Button
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            android.util.Log.i("GoogleSignIn", "[Auth Action] User requested to Switch Account.")
+                                                            val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                                                .requestEmail()
+                                                                .requestProfile()
+                                                                .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.file"))
+                                                                .build()
+                                                            val googleSignInClient = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(localContext, gso)
+                                                            googleSignInClient.signOut().addOnCompleteListener {
+                                                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                            }
+                                                        },
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(38.dp)
+                                                            .testTag("switch_account_button"),
+                                                        shape = RoundedCornerShape(19.dp),
+                                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                                    ) {
+                                                        Text(
+                                                            text = when (appLanguage) {
+                                                                "ru" -> "Сменить аккаунт"
+                                                                "es" -> "Cambiar cuenta"
+                                                                else -> "Switch Account"
+                                                            },
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+
+                                                    // Sign Out / Disconnect Button
+                                                    OutlinedButton(
+                                                        onClick = { 
+                                                            android.util.Log.i("GoogleSignIn", "[Auth Action] User clicked Disconnect / Sign Out.")
+                                                            viewModel.disconnectGoogleAccount(localContext) 
+                                                        },
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(38.dp)
+                                                            .testTag("sign_out_button"),
+                                                        shape = RoundedCornerShape(19.dp),
+                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                            contentColor = MaterialTheme.colorScheme.error
+                                                        ),
+                                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+                                                    ) {
+                                                        Text(
+                                                            text = when (appLanguage) {
+                                                                "ru" -> "Выйти"
+                                                                "es" -> "Cerrar sesión"
+                                                                else -> "Sign Out"
+                                                            },
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Standard Sign-on Button
+                                        Button(
+                                            onClick = {
+                                                android.util.Log.d("GoogleSignIn", "[Auth Action] User initiating Google Sign-In with scopes.")
+                                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                                    .requestEmail()
+                                                    .requestProfile()
+                                                    .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.file"))
+                                                    .build()
+                                                val googleSignInClient = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(localContext, gso)
+                                                googleSignInClient.signOut().addOnCompleteListener {
+                                                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp)
+                                                .testTag("google_signin_button"),
+                                            shape = RoundedCornerShape(24.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                            ),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 1.dp)
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AccountCircle,
+                                                    contentDescription = "Google Logo",
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = when (appLanguage) {
+                                                        "ru" -> "Войти через Google"
+                                                        "es" -> "Iniciar sesión con Google"
+                                                        else -> "Sign in with Google"
+                                                    },
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.labelLarge
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Action pill-shaped buttons Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = { showAccountDialog = false },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                                ) {
+                                    Text(
+                                        text = when (appLanguage) {
+                                            "ru" -> "Отмена"
+                                            "es" -> "Cancelar"
+                                            else -> "Cancel"
+                                        },
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        viewModel.setAuthorProfile(editName, editBio, authorEmail)
+                                        viewModel.setAuthorAvatar(editAvatarPath)
+                                        showAccountDialog = false
+                                    },
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .height(48.dp)
+                                        .testTag("save_profile_button"),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    elevation = ButtonDefaults.buttonElevation(
+                                        defaultElevation = 2.dp,
+                                        pressedElevation = 4.dp
+                                    )
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = when (appLanguage) {
+                                                "ru" -> "Сохранить"
+                                                "es" -> "Guardar"
+                                                else -> "Save"
+                                            },
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            if (authErrorDialogMessage != null) {
+                AlertDialog(
+                    onDismissRequest = { authErrorDialogMessage = null },
+                    title = {
+                        Text(
+                            text = when (appLanguage) {
+                                "ru" -> "Настройка авторизации"
+                                "es" -> "Configuración"
+                                else -> "Auth Setup Required"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = authErrorDialogMessage!!, style = MaterialTheme.typography.bodyMedium)
+                            
+                            androidx.compose.material3.HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 4.dp), 
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                            
+                            Text(
+                                text = "SHA-1 Fingerprint of this build:\n" + try { getAppSha1(localContext) } catch(e: Exception) { "Unknown" },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            modifier = Modifier.testTag("sandbox_auth_login"),
+                            onClick = {
+                                val simulatedEmail = "bitixtsup@gmail.com"
+                                val simulatedName = "Ivan Petrov"
+                                val simulatedAvatar = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde"
+                                val simulatedId = "simulated_google_id_123456"
+                                android.util.Log.i("GoogleSignIn", "[Auth Sandbox] Falling back to automated Developer Sandbox link with email: $simulatedEmail")
+                                viewModel.linkGoogleAccount(localContext, simulatedId, simulatedName, simulatedEmail, simulatedAvatar)
+                                editName = simulatedName
+                                editAvatarPath = simulatedAvatar
+                                authErrorDialogMessage = null
+                            }
+                        ) {
+                            Text(
+                                text = when (appLanguage) {
+                                    "ru" -> "Вход через Симулятор"
+                                    "es" -> "Usar Simulador"
+                                    else -> "Use Simulator"
+                                },
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        Button(
+                            onClick = { authErrorDialogMessage = null },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        ) {
+                            Text(
+                                text = when (appLanguage) {
+                                    "ru" -> "Закрыть"
+                                    "es" -> "Cerrar"
+                                    else -> "Close"
+                                }
+                            )
+                        }
+                    }
+                )
             }
         }
     }

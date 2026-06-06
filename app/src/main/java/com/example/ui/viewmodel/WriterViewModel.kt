@@ -2,12 +2,14 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.*
 import com.example.data.entity.*
 import com.example.data.local.WriterDatabase
 import com.example.data.models.BlockStyle
 import com.example.data.models.EditorBlock
 import com.example.data.repository.WriterRepository
+import com.example.data.remote.GoogleDriveService
 import com.example.util.FormatExporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,6 +100,8 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _cloudSyncEnabled = MutableStateFlow(false)
     val cloudSyncEnabled: StateFlow<Boolean> = _cloudSyncEnabled.asStateFlow()
 
+
+
     // Loaded folders & documents list
     val currentFolders: StateFlow<List<Folder>> = _selectedProject
         .flatMapLatest { project ->
@@ -163,6 +167,14 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         loadAppLanguage()
     }
 
+    private val _googleUserId = MutableStateFlow("")
+    val googleUserId: StateFlow<String> = _googleUserId.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    private var appContext: Context? = null
+
     private fun loadAppLanguage() {
         viewModelScope.launch {
             _appLanguage.value = repository.getAppLanguage()
@@ -174,6 +186,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             _authorEmail.value = repository.getAuthorEmail()
             _authorAvatar.value = repository.getAuthorAvatar()
             _cloudSyncEnabled.value = repository.getCloudSyncEnabled()
+            _googleUserId.value = repository.getGoogleUserId()
         }
     }
 
@@ -188,6 +201,329 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         viewModelScope.launch {
             repository.saveCloudSyncEnabled(enabled)
             _cloudSyncEnabled.value = enabled
+            if (enabled) {
+                appContext?.let { syncAllWithDrive(it) }
+            }
+        }
+    }
+
+    fun linkGoogleAccount(
+        context: Context,
+        gId: String,
+        displayName: String,
+        email: String,
+        photoUrl: String
+    ) {
+        Log.d("GoogleSignIn", "[Google Link Initiated] Linking google account: Email='$email', ID='$gId', Name='$displayName'")
+        viewModelScope.launch {
+            try {
+                repository.saveAuthorName(displayName)
+                repository.saveAuthorEmail(email)
+                repository.saveAuthorAvatar(photoUrl)
+                repository.saveGoogleUserId(gId)
+                repository.saveCloudSyncEnabled(true)
+
+                _authorName.value = displayName
+                _authorEmail.value = email
+                _authorAvatar.value = photoUrl
+                _googleUserId.value = gId
+                _cloudSyncEnabled.value = true
+                Log.d("GoogleSignIn", "[Google Link Saved] Account data successfully stored locally in SQLite settings DB.")
+
+                syncAllWithDrive(context)
+            } catch (e: Exception) {
+                Log.e("GoogleSignIn", "[Google Link Failed] Error saving account details: ${e.message}", e)
+            }
+        }
+    }
+
+    fun disconnectGoogleAccount(context: Context) {
+        Log.d("GoogleSignIn", "[Google Disconnect] Dissociating Google account and disabling sync.")
+        viewModelScope.launch {
+            try {
+                // Sign out Google Client so user picker forces account select next time
+                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
+                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                ).build()
+                val client = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
+                client.signOut().addOnCompleteListener {
+                    Log.d("GoogleSignIn", "[Google Disconnect] GoogleSignInClient signOut complete.")
+                }
+            } catch (e: Exception) {
+                Log.e("GoogleSignIn", "[Google Disconnect] Error during Google Play Services client signOut: ${e.message}", e)
+            }
+
+            try {
+                repository.saveAuthorName("Писатель")
+                repository.saveAuthorBio("Вдохновение рождается во время работы.")
+                repository.saveAuthorEmail("")
+                repository.saveAuthorAvatar("")
+                repository.saveGoogleUserId("")
+                repository.saveCloudSyncEnabled(false)
+
+                _authorName.value = "Писатель"
+                _authorBio.value = "Вдохновение рождается во время работы."
+                _authorEmail.value = ""
+                _authorAvatar.value = ""
+                _googleUserId.value = ""
+                _cloudSyncEnabled.value = false
+                Log.d("GoogleSignIn", "[Google Disconnect] Stored credentials reset to default offline writer profile.")
+            } catch (e: Exception) {
+                Log.e("GoogleSignIn", "[Google Disconnect] Error clearing account details: ${e.message}", e)
+            }
+        }
+    }
+
+    fun checkAndRestoreGoogleSession(context: Context) {
+        viewModelScope.launch {
+            Log.d("GoogleSignIn", "[Session Check] --- Starting startup session check ---")
+            val storedUserId = repository.getGoogleUserId()
+            val storedEmail = repository.getAuthorEmail()
+            val storedName = repository.getAuthorName()
+            Log.d("GoogleSignIn", "[Session Check] Stored settings credentials: id='$storedUserId', email='$storedEmail', name='$storedName'")
+
+            // 1. Double check cached auth session using GoogleSignIn API
+            try {
+                val account = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+                if (account != null) {
+                    val email = account.email ?: ""
+                    val displayName = account.displayName ?: "Google User"
+                    val photoUrl = account.photoUrl?.toString() ?: ""
+                    val gId = account.id ?: ""
+
+                    Log.d("GoogleSignIn", "[Session Check] Found cached GoogleSignIn account session: email='$email', id='$gId'")
+
+                    if (email.isNotEmpty()) {
+                        repository.saveAuthorName(displayName)
+                        repository.saveAuthorEmail(email)
+                        repository.saveAuthorAvatar(photoUrl)
+                        repository.saveGoogleUserId(gId)
+                        repository.saveCloudSyncEnabled(true)
+
+                        _authorName.value = displayName
+                        _authorEmail.value = email
+                        _authorAvatar.value = photoUrl
+                        _googleUserId.value = gId
+                        _cloudSyncEnabled.value = true
+
+                        Log.d("GoogleSignIn", "[Session Check] Session restored successfully from cached Google API account.")
+                        return@launch
+                    }
+                } else {
+                    Log.d("GoogleSignIn", "[Session Check] No active cached account found via GoogleSignIn.getLastSignedInAccount.")
+                }
+            } catch (e: Exception) {
+                Log.e("GoogleSignIn", "[Session Check] Exception verifying GoogleSignIn cache: ${e.message}", e)
+            }
+
+            // 2. Fallback to Silent Sign-in if we have locally stored credentials but play service cache is cold
+            if (storedUserId.isNotEmpty() && storedEmail.isNotEmpty()) {
+                Log.d("GoogleSignIn", "[Session Check] Found local DB credentials but cold Play Services cache. Attempting silent sign-in...")
+                try {
+                    val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
+                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                    )
+                        .requestEmail()
+                        .requestProfile()
+                        .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.file"))
+                        .build()
+                    val signInClient = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
+                    signInClient.silentSignIn().addOnCompleteListener { task ->
+                        if (task.isSuccessful) {
+                            val silentAccount = task.result
+                            Log.d("GoogleSignIn", "[Session Check] Silent Sign-In succeeded for '${silentAccount?.email}'")
+                            if (silentAccount != null) {
+                                val email = silentAccount.email ?: ""
+                                val displayName = silentAccount.displayName ?: "Google User"
+                                val photoUrl = silentAccount.photoUrl?.toString() ?: ""
+                                val gId = silentAccount.id ?: ""
+
+                                viewModelScope.launch {
+                                    repository.saveAuthorName(displayName)
+                                    repository.saveAuthorEmail(email)
+                                    repository.saveAuthorAvatar(photoUrl)
+                                    repository.saveGoogleUserId(gId)
+                                    repository.saveCloudSyncEnabled(true)
+
+                                    _authorName.value = displayName
+                                    _authorEmail.value = email
+                                    _authorAvatar.value = photoUrl
+                                    _googleUserId.value = gId
+                                    _cloudSyncEnabled.value = true
+                                    Log.d("GoogleSignIn", "[Session Check] Local profile successfully synchronized with silenly logged-in Google account.")
+                                }
+                            }
+                        } else {
+                            Log.w("GoogleSignIn", "[Session Check] Silent Sign-In failed: ${task.exception?.message}")
+                            // Keep DB account anyway (sandbox/offline tolerance)
+                            Log.d("GoogleSignIn", "[Session Check] Maintaining DB cached state as fallback to preserve unsynced local content.")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("GoogleSignIn", "[Session Check] Silentsignin setup error: ${e.message}", e)
+                }
+            } else {
+                Log.d("GoogleSignIn", "[Session Check] No active Google authorization exists locally or remotely. Staying in offline mode.")
+            }
+        }
+    }
+
+    fun syncAllWithDrive(context: Context) {
+        val email = _authorEmail.value
+        if (email.isEmpty()) return
+        if (!_cloudSyncEnabled.value) return
+
+        viewModelScope.launch {
+            if (_isSyncing.value) return@launch
+            _isSyncing.value = true
+            try {
+                Log.d("WriterViewModel", "Starting full sync with Google Drive")
+                val folderId = GoogleDriveService.getOrCreateAppFolder(context, email)
+                if (folderId == null) {
+                    Log.e("WriterViewModel", "Failed to get or create Google Drive app folder")
+                    _isSyncing.value = false
+                    return@launch
+                }
+
+                val remoteFiles = GoogleDriveService.listAllProjectFiles(context, email, folderId)
+                val remoteUuids = remoteFiles.map { it.uuid }.toSet()
+                val localProjects = repository.getAllProjectsDirectList()
+
+                val localUuidsToPids = mutableMapOf<String, Long>()
+                val localPidsToUuids = mutableMapOf<Long, String>()
+                for (p in localProjects) {
+                    val uuid = repository.getProjectUuid(p.id)
+                    localUuidsToPids[uuid] = p.id
+                    localPidsToUuids[p.id] = uuid
+                }
+
+                for (remoteFile in remoteFiles) {
+                    val localPID = localUuidsToPids[remoteFile.uuid]
+                    if (localPID != null) {
+                        val localProj = repository.getProjectById(localPID)
+                        if (localProj != null) {
+                            if (remoteFile.modifiedTime > localProj.updatedAt) {
+                                Log.d("WriterViewModel", "Remote project ${localProj.title} is newer. Downloading...")
+                                val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
+                                if (fileContent != null) {
+                                    repository.importProjectFromJson(fileContent)
+                                }
+                            } else if (localProj.updatedAt > remoteFile.modifiedTime) {
+                                Log.d("WriterViewModel", "Local project ${localProj.title} is newer. Uploading...")
+                                val fileContent = repository.serializeProjectToJson(localProj.id)
+                                GoogleDriveService.uploadFileMedia(context, email, remoteFile.fileId, fileContent)
+                            }
+                        }
+                    } else {
+                        Log.d("WriterViewModel", "Found brand-new remote project with UUID ${remoteFile.uuid}. Downloading...")
+                        val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
+                        if (fileContent != null) {
+                            repository.importProjectFromJson(fileContent)
+                        }
+                    }
+                }
+
+                for (localProj in localProjects) {
+                    val uuid = localPidsToUuids[localProj.id] ?: continue
+                    if (uuid !in remoteUuids) {
+                        Log.d("WriterViewModel", "Local project ${localProj.title} has no remote counterpart. Uploading...")
+                        val fileContent = repository.serializeProjectToJson(localProj.id)
+                        GoogleDriveService.createAndUploadProjectFile(context, email, folderId, uuid, fileContent)
+                    }
+                }
+
+                repository.savePendingSyncProjectIds(emptySet())
+                Log.d("WriterViewModel", "Google Drive sync completed successfully")
+            } catch (e: Exception) {
+                Log.e("WriterViewModel", "Error in syncAllWithDrive: ${e.message}", e)
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    fun markProjectDirtyAndSync(context: Context, projectId: Long) {
+        viewModelScope.launch {
+            val pending = repository.getPendingSyncProjectIds().toMutableSet()
+            pending.add(projectId)
+            repository.savePendingSyncProjectIds(pending)
+            syncPendingProjects(context)
+        }
+    }
+
+    fun syncPendingProjects(context: Context) {
+        val email = _authorEmail.value
+        if (email.isEmpty() || !_cloudSyncEnabled.value) return
+
+        viewModelScope.launch {
+            val pending = repository.getPendingSyncProjectIds()
+            if (pending.isEmpty()) return@launch
+
+            val folderId = GoogleDriveService.getOrCreateAppFolder(context, email) ?: return@launch
+            val syncedSuccessfully = mutableSetOf<Long>()
+
+            for (pid in pending) {
+                try {
+                    val uuid = repository.getProjectUuid(pid)
+                    val projectContent = repository.serializeProjectToJson(pid)
+                    if (projectContent.isEmpty()) {
+                        syncedSuccessfully.add(pid)
+                        continue
+                    }
+
+                    val existingFile = GoogleDriveService.findProjectFile(context, email, folderId, uuid)
+                    val success = if (existingFile != null) {
+                        GoogleDriveService.uploadFileMedia(context, email, existingFile.first, projectContent)
+                    } else {
+                        GoogleDriveService.createAndUploadProjectFile(context, email, folderId, uuid, projectContent)
+                    }
+
+                    if (success) {
+                        syncedSuccessfully.add(pid)
+                    }
+                } catch (e: Exception) {
+                    Log.e("WriterViewModel", "Failed to sync pending project $pid: ${e.message}")
+                }
+            }
+
+            if (syncedSuccessfully.isNotEmpty()) {
+                val updatedPending = repository.getPendingSyncProjectIds().toMutableSet()
+                updatedPending.removeAll(syncedSuccessfully)
+                repository.savePendingSyncProjectIds(updatedPending)
+            }
+        }
+    }
+
+    private fun triggerProjectSync(projectId: Long) {
+        val context = appContext ?: return
+        markProjectDirtyAndSync(context, projectId)
+    }
+
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
+    fun initNetworkListener(context: Context) {
+        appContext = context.applicationContext
+        val appContextLoc = context.applicationContext
+        val cm = appContextLoc.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
+
+        if (networkCallback != null) return
+
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                super.onAvailable(network)
+                Log.d("WriterViewModel", "Network restored. Triggering auto-sync of pending queue.")
+                syncPendingProjects(appContextLoc)
+                syncAllWithDrive(appContextLoc)
+            }
+        }
+        networkCallback = callback
+        try {
+            val request = android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(request, callback)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -279,43 +615,62 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
 
     fun createProject(title: String, type: String, colorHex: String, password: String? = null) {
         viewModelScope.launch {
-            repository.createProject(title, type, colorHex, password)
+            val newId = repository.createProject(title, type, colorHex, password)
+            triggerProjectSync(newId)
         }
     }
 
     fun updateProject(project: WorkspaceProject) {
         viewModelScope.launch {
             repository.updateProject(project)
+            triggerProjectSync(project.id)
         }
     }
 
     fun toggleFavoriteProject(project: WorkspaceProject) {
         viewModelScope.launch {
             repository.updateProject(project.copy(isFavorite = !project.isFavorite))
+            triggerProjectSync(project.id)
         }
     }
 
     fun toggleArchiveProject(project: WorkspaceProject) {
         viewModelScope.launch {
             repository.updateProject(project.copy(isArchived = !project.isArchived))
+            triggerProjectSync(project.id)
         }
     }
 
     fun sendToTrash(project: WorkspaceProject) {
         viewModelScope.launch {
             repository.sendToTrash(project.id)
+            triggerProjectSync(project.id)
         }
     }
 
     fun restoreFromTrash(project: WorkspaceProject) {
         viewModelScope.launch {
             repository.restoreFromTrash(project.id)
+            triggerProjectSync(project.id)
         }
     }
 
     fun permanentDeleteProject(project: WorkspaceProject) {
         viewModelScope.launch {
+            val uuid = repository.getProjectUuid(project.id)
             repository.permanentDeleteProject(project.id)
+            
+            val context = appContext
+            val email = _authorEmail.value
+            if (context != null && email.isNotEmpty() && _cloudSyncEnabled.value) {
+                val folderId = GoogleDriveService.getOrCreateAppFolder(context, email)
+                if (folderId != null) {
+                    val fileInfo = GoogleDriveService.findProjectFile(context, email, folderId, uuid)
+                    if (fileInfo != null) {
+                        GoogleDriveService.deleteFile(context, email, fileInfo.first)
+                    }
+                }
+            }
         }
     }
 
@@ -323,6 +678,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         viewModelScope.launch {
             if (newTitle.isNotBlank()) {
                 repository.updateProject(project.copy(title = newTitle))
+                triggerProjectSync(project.id)
             }
         }
     }
@@ -351,6 +707,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                 for (p in currentList) {
                     repository.updateProject(p)
                 }
+                triggerProjectSync(project.id)
             }
         }
     }
@@ -378,15 +735,18 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         val project = _selectedProject.value ?: return
         viewModelScope.launch {
             repository.createFolder(project.id, name, _selectedFolder.value?.id)
+            triggerProjectSync(project.id)
         }
     }
 
     fun deleteFolder(folderId: Long) {
+        val projectId = _selectedProject.value?.id
         viewModelScope.launch {
             repository.deleteFolder(folderId)
             if (_selectedFolder.value?.id == folderId) {
                 _selectedFolder.value = null
             }
+            projectId?.let { triggerProjectSync(it) }
         }
     }
 
@@ -413,6 +773,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                 for (f in foldersInLevel) {
                     repository.updateFolder(f)
                 }
+                triggerProjectSync(folder.projectId)
             }
         }
     }
@@ -440,6 +801,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                 for (d in list) {
                     repository.updateDocument(d)
                 }
+                triggerProjectSync(document.projectId)
             }
         }
     }
@@ -448,6 +810,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         viewModelScope.launch {
             if (newName.isNotBlank()) {
                 repository.updateFolder(folder.copy(name = newName))
+                triggerProjectSync(folder.projectId)
             }
         }
     }
@@ -460,6 +823,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                 if (_activeDocument.value?.id == document.id) {
                     _activeDocument.value = updated
                 }
+                triggerProjectSync(document.projectId)
             }
         }
     }
@@ -498,6 +862,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             val newId = repository.createDocument(project.id, folder?.id, title, initialContent, isPlainText)
             val createdDoc = repository.getDocumentById(newId)
             selectDocument(createdDoc)
+            triggerProjectSync(project.id)
         }
     }
 
@@ -512,15 +877,18 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         viewModelScope.launch {
             repository.deleteDocument(doc.id)
             selectDocument(null)
+            triggerProjectSync(doc.projectId)
         }
     }
 
     fun deleteDocument(id: Long) {
         viewModelScope.launch {
+            val doc = repository.getDocumentById(id)
             repository.deleteDocument(id)
             if (_activeDocument.value?.id == id) {
                 selectDocument(null)
             }
+            doc?.let { triggerProjectSync(it.projectId) }
         }
     }
 
@@ -627,6 +995,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             if (_activeDocument.value?.id == doc.id) {
                 _activeDocument.value = updatedDoc
             }
+            triggerProjectSync(updatedDoc.projectId)
         }
     }
 
