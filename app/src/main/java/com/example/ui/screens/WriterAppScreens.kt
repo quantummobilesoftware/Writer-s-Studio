@@ -170,6 +170,7 @@ fun WriterAppMainLayout(viewModel: WriterViewModel) {
     val isLocked by viewModel.isAppLocked.collectAsStateWithLifecycle()
     val isPinConfigured by viewModel.isPinConfigured.collectAsStateWithLifecycle()
     val selectedProj by viewModel.selectedProject.collectAsStateWithLifecycle()
+    val activeConflict by viewModel.activeConflict.collectAsStateWithLifecycle()
 
     val currentBg = when (themeMode) {
         "LIGHT" -> WriterThemeColors.LightBg
@@ -234,6 +235,89 @@ fun WriterAppMainLayout(viewModel: WriterViewModel) {
                     AppLockScreen(viewModel)
                 } else {
                     NavigationScaffold(viewModel, themeMode, onThemeChange = { viewModel.setThemeMode(it) })
+                }
+
+                activeConflict?.let { conflict ->
+                    AlertDialog(
+                        onDismissRequest = { /* Modal: force resolution selection */ },
+                        title = {
+                            Text(
+                                text = if (viewModel.appLanguage.value == "ru") "Конфликт синхронизации" else "Sync Conflict",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = if (viewModel.appLanguage.value == "ru") {
+                                        "Проект \"${conflict.localTitle}\" был изменен локально и в облаке с момента последней синхронизации. Пожалуйста, выберите действие:"
+                                    } else {
+                                        "The project \"${conflict.localTitle}\" was modified both locally and in the cloud since last sync. Please choose how to resolve:"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (viewModel.appLanguage.value == "ru") {
+                                        "• Локальная версия: ${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(conflict.localUpdatedAt))}"
+                                    } else {
+                                        "• Local version: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(conflict.localUpdatedAt))}"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                                Text(
+                                    text = if (viewModel.appLanguage.value == "ru") {
+                                        "• Облачная версия: ${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(conflict.remoteModifiedTime))}"
+                                    } else {
+                                        "• Cloud version: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(conflict.remoteModifiedTime))}"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { viewModel.resolveConflictWithLocal(conflict, context) },
+                                    modifier = Modifier.fillMaxWidth().testTag("resolve_keep_local_btn"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = activePrimaryColor)
+                                ) {
+                                    Text(
+                                        text = if (viewModel.appLanguage.value == "ru") "Оставить локальную версию" else "Keep Local Version",
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                }
+                                Button(
+                                    onClick = { viewModel.resolveConflictWithCloud(conflict, context) },
+                                    modifier = Modifier.fillMaxWidth().testTag("resolve_keep_cloud_btn"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = activePrimaryColor)
+                                ) {
+                                    Text(
+                                        text = if (viewModel.appLanguage.value == "ru") "Оставить облачную версию" else "Keep Cloud Version",
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                }
+                                Button(
+                                    onClick = { viewModel.resolveConflictWithMerge(conflict, context) },
+                                    modifier = Modifier.fillMaxWidth().testTag("resolve_merge_btn"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Text(
+                                        text = if (viewModel.appLanguage.value == "ru") "Создать объединенную копию" else "Create Merged Copy",
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                }
+                            }
+                        },
+                        dismissButton = null,
+                        modifier = Modifier.testTag("sync_conflict_dialog")
+                    )
                 }
             }
         }
@@ -2097,7 +2181,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                         Button(
                             modifier = Modifier.testTag("sandbox_auth_login"),
                             onClick = {
-                                val simulatedEmail = "bitixtsup@gmail.com"
+                                val simulatedEmail = "sandbox.writer@example.com"
                                 val simulatedName = "Ivan Petrov"
                                 val simulatedAvatar = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde"
                                 val simulatedId = "simulated_google_id_123456"

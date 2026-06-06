@@ -25,6 +25,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import org.json.JSONArray
+
+data class SyncConflict(
+    val projectId: Long,
+    val projectUuid: String,
+    val localTitle: String,
+    val localUpdatedAt: Long,
+    val remoteFileId: String,
+    val remoteModifiedTime: Long,
+    val remoteContent: String
+)
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
 
@@ -173,6 +185,9 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
+    private val _activeConflict = MutableStateFlow<SyncConflict?>(null)
+    val activeConflict: StateFlow<SyncConflict?> = _activeConflict.asStateFlow()
+
     private var appContext: Context? = null
 
     private fun loadAppLanguage() {
@@ -254,6 +269,12 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             }
 
             try {
+                // Clean up synced projects locally so they disappear upon logging out
+                repository.cleanUpSyncedProjectsOnLogout()
+                _selectedProject.value = null
+                _selectedFolder.value = null
+                _activeDocument.value = null
+
                 repository.saveAuthorName("Писатель")
                 repository.saveAuthorBio("Вдохновение рождается во время работы.")
                 repository.saveAuthorEmail("")
@@ -307,6 +328,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                         _cloudSyncEnabled.value = true
 
                         Log.d("GoogleSignIn", "[Session Check] Session restored successfully from cached Google API account.")
+                        syncAllWithDrive(context)
                         return@launch
                     }
                 } else {
@@ -351,6 +373,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                                     _googleUserId.value = gId
                                     _cloudSyncEnabled.value = true
                                     Log.d("GoogleSignIn", "[Session Check] Local profile successfully synchronized with silenly logged-in Google account.")
+                                    syncAllWithDrive(context)
                                 }
                             }
                         } else {
@@ -402,16 +425,72 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                     if (localPID != null) {
                         val localProj = repository.getProjectById(localPID)
                         if (localProj != null) {
-                            if (remoteFile.modifiedTime > localProj.updatedAt) {
-                                Log.d("WriterViewModel", "Remote project ${localProj.title} is newer. Downloading...")
-                                val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
-                                if (fileContent != null) {
-                                    repository.importProjectFromJson(fileContent)
+                            val lastSyncLocal = repository.getLastSyncLocal(localProj.id)
+                            val lastSyncRemote = repository.getLastSyncRemote(localProj.id)
+
+                            if (lastSyncLocal != 0L && lastSyncRemote != 0L) {
+                                val hasLocalChanged = localProj.updatedAt > lastSyncLocal
+                                val hasRemoteChanged = remoteFile.modifiedTime > lastSyncRemote
+
+                                if (hasLocalChanged && hasRemoteChanged) {
+                                    Log.w("WriterViewModel", "Conflict detected for project ${localProj.title}!")
+                                    val remoteContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId) ?: ""
+                                    _activeConflict.value = SyncConflict(
+                                        projectId = localProj.id,
+                                        projectUuid = remoteFile.uuid,
+                                        localTitle = localProj.title,
+                                        localUpdatedAt = localProj.updatedAt,
+                                        remoteFileId = remoteFile.fileId,
+                                        remoteModifiedTime = remoteFile.modifiedTime,
+                                        remoteContent = remoteContent
+                                    )
+                                    // Skip auto sync for this project until resolved
+                                    continue
+                                } else if (hasRemoteChanged) {
+                                    Log.d("WriterViewModel", "[Sync] Remote is newer (tick) for ${localProj.title}. Downloading...")
+                                    val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
+                                    if (fileContent != null) {
+                                        repository.importProjectFromJson(fileContent)
+                                        val updatedProj = repository.getProjectById(localProj.id)
+                                        val finalLocalTick = updatedProj?.updatedAt ?: localProj.updatedAt
+                                        repository.saveSyncTicks(localProj.id, finalLocalTick, remoteFile.modifiedTime)
+                                    }
+                                } else if (hasLocalChanged) {
+                                    Log.d("WriterViewModel", "[Sync] Local is newer (tick) for ${localProj.title}. Uploading...")
+                                    val fileContent = repository.serializeProjectToJson(localProj.id)
+                                    val success = GoogleDriveService.uploadFileMedia(context, email, remoteFile.fileId, fileContent)
+                                    if (success) {
+                                        val updatedFileMetadata = GoogleDriveService.findProjectFile(context, email, folderId, remoteFile.uuid)
+                                        val newRemoteModifiedTime = updatedFileMetadata?.second ?: System.currentTimeMillis()
+                                        repository.saveSyncTicks(localProj.id, localProj.updatedAt, newRemoteModifiedTime)
+                                    }
+                                } else {
+                                    // In sync
+                                    repository.saveSyncTicks(localProj.id, localProj.updatedAt, remoteFile.modifiedTime)
                                 }
-                            } else if (localProj.updatedAt > remoteFile.modifiedTime) {
-                                Log.d("WriterViewModel", "Local project ${localProj.title} is newer. Uploading...")
-                                val fileContent = repository.serializeProjectToJson(localProj.id)
-                                GoogleDriveService.uploadFileMedia(context, email, remoteFile.fileId, fileContent)
+                            } else {
+                                // No sync ticks history yet, fallback to naive comparisons
+                                if (remoteFile.modifiedTime > localProj.updatedAt) {
+                                    Log.d("WriterViewModel", "[Initial Sync] Remote is newer for ${localProj.title}. Downloading...")
+                                    val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
+                                    if (fileContent != null) {
+                                        repository.importProjectFromJson(fileContent)
+                                        val updatedProj = repository.getProjectById(localProj.id)
+                                        val finalLocalTick = updatedProj?.updatedAt ?: localProj.updatedAt
+                                        repository.saveSyncTicks(localProj.id, finalLocalTick, remoteFile.modifiedTime)
+                                    }
+                                } else if (localProj.updatedAt > remoteFile.modifiedTime) {
+                                    Log.d("WriterViewModel", "[Initial Sync] Local is newer for ${localProj.title}. Uploading...")
+                                    val fileContent = repository.serializeProjectToJson(localProj.id)
+                                    val success = GoogleDriveService.uploadFileMedia(context, email, remoteFile.fileId, fileContent)
+                                    if (success) {
+                                        val updatedFileMetadata = GoogleDriveService.findProjectFile(context, email, folderId, remoteFile.uuid)
+                                        val newRemoteModifiedTime = updatedFileMetadata?.second ?: System.currentTimeMillis()
+                                        repository.saveSyncTicks(localProj.id, localProj.updatedAt, newRemoteModifiedTime)
+                                    }
+                                } else {
+                                    repository.saveSyncTicks(localProj.id, localProj.updatedAt, remoteFile.modifiedTime)
+                                }
                             }
                         }
                     } else {
@@ -419,6 +498,12 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                         val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
                         if (fileContent != null) {
                             repository.importProjectFromJson(fileContent)
+                            val newPid = repository.getProjectIdByUuid(remoteFile.uuid)
+                            if (newPid != null) {
+                                val newProj = repository.getProjectById(newPid)
+                                val finalLocalTick = newProj?.updatedAt ?: System.currentTimeMillis()
+                                repository.saveSyncTicks(newPid, finalLocalTick, remoteFile.modifiedTime)
+                            }
                         }
                     }
                 }
@@ -428,7 +513,12 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                     if (uuid !in remoteUuids) {
                         Log.d("WriterViewModel", "Local project ${localProj.title} has no remote counterpart. Uploading...")
                         val fileContent = repository.serializeProjectToJson(localProj.id)
-                        GoogleDriveService.createAndUploadProjectFile(context, email, folderId, uuid, fileContent)
+                        val success = GoogleDriveService.createAndUploadProjectFile(context, email, folderId, uuid, fileContent)
+                        if (success) {
+                            val updatedFileMetadata = GoogleDriveService.findProjectFile(context, email, folderId, uuid)
+                            val newRemoteModifiedTime = updatedFileMetadata?.second ?: System.currentTimeMillis()
+                            repository.saveSyncTicks(localProj.id, localProj.updatedAt, newRemoteModifiedTime)
+                        }
                     }
                 }
 
@@ -438,6 +528,86 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                 Log.e("WriterViewModel", "Error in syncAllWithDrive: ${e.message}", e)
             } finally {
                 _isSyncing.value = false
+            }
+        }
+    }
+
+    fun resolveConflictWithLocal(conflict: SyncConflict, context: Context) {
+        val email = _authorEmail.value
+        if (email.isEmpty()) return
+        viewModelScope.launch {
+            if (_isSyncing.value) return@launch
+            _isSyncing.value = true
+            try {
+                val folderId = GoogleDriveService.getOrCreateAppFolder(context, email) ?: return@launch
+                val fileContent = repository.serializeProjectToJson(conflict.projectId)
+                val success = GoogleDriveService.uploadFileMedia(context, email, conflict.remoteFileId, fileContent)
+                if (success) {
+                    val updatedFileMetadata = GoogleDriveService.findProjectFile(context, email, folderId, conflict.projectUuid)
+                    val newRemoteModifiedTime = updatedFileMetadata?.second ?: System.currentTimeMillis()
+                    repository.saveSyncTicks(conflict.projectId, conflict.localUpdatedAt, newRemoteModifiedTime)
+                }
+            } catch (e: Exception) {
+                Log.e("WriterViewModel", "Error resolving conflict with local: ${e.message}")
+            } finally {
+                _isSyncing.value = false
+                _activeConflict.value = null
+            }
+        }
+    }
+
+    fun resolveConflictWithCloud(conflict: SyncConflict, context: Context) {
+        viewModelScope.launch {
+            if (_isSyncing.value) return@launch
+            _isSyncing.value = true
+            try {
+                val success = repository.importProjectFromJson(conflict.remoteContent)
+                if (success) {
+                    val updatedProj = repository.getProjectById(conflict.projectId)
+                    val finalLocalTick = updatedProj?.updatedAt ?: conflict.localUpdatedAt
+                    repository.saveSyncTicks(conflict.projectId, finalLocalTick, conflict.remoteModifiedTime)
+                }
+            } catch (e: Exception) {
+                Log.e("WriterViewModel", "Error resolving conflict with cloud: ${e.message}")
+            } finally {
+                _isSyncing.value = false
+                _activeConflict.value = null
+            }
+        }
+    }
+
+    fun resolveConflictWithMerge(conflict: SyncConflict, context: Context) {
+        val email = _authorEmail.value
+        if (email.isEmpty()) return
+        viewModelScope.launch {
+            if (_isSyncing.value) return@launch
+            _isSyncing.value = true
+            try {
+                // 1. Mark local project as synced with current ticks to stop conflict loop
+                repository.saveSyncTicks(conflict.projectId, conflict.localUpdatedAt, conflict.remoteModifiedTime)
+
+                // 2. Import cloud copy under new UUID & modified title
+                val jsonObj = JSONObject(conflict.remoteContent)
+                val newUuid = java.util.UUID.randomUUID().toString()
+                val originalTitle = jsonObj.optString("title", "Project")
+                jsonObj.put("uuid", newUuid)
+                jsonObj.put("title", "$originalTitle (Cloud Copy)")
+
+                val imported = repository.importProjectFromJson(jsonObj.toString())
+                if (imported) {
+                    val newProjectId = repository.getProjectIdByUuid(newUuid)
+                    if (newProjectId != null) {
+                        val newProj = repository.getProjectById(newProjectId)
+                        val newLocalTick = newProj?.updatedAt ?: System.currentTimeMillis()
+                        repository.saveSyncTicks(newProjectId, newLocalTick, 0L)
+                        markProjectDirtyAndSync(context, newProjectId)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("WriterViewModel", "Error resolving conflict with merge: ${e.message}")
+            } finally {
+                _isSyncing.value = false
+                _activeConflict.value = null
             }
         }
     }

@@ -777,5 +777,62 @@ class WriterRepository(private val db: WriterDatabase) {
             false
         }
     }
+
+    suspend fun cleanUpSyncedProjectsOnLogout() = withContext(Dispatchers.IO) {
+        try {
+            val settings = settingsDao.getAllSettingsDirect()
+            val syncedProjectKeys = settings.filter { it.configKey.startsWith("drive_uuid_") }
+            for (setting in syncedProjectKeys) {
+                val projectId = setting.configKey.removePrefix("drive_uuid_").toLongOrNull() ?: continue
+                val uuid = setting.configValue
+                if (uuid.isNotEmpty()) {
+                    // Delete everything related to this projectId
+
+                    // 1. Delete documents, histories
+                    val docs = documentDao.getAllProjectDocuments(projectId)
+                    for (doc in docs) {
+                        try {
+                            val histories = historyDao.getAllHistoryDirect().filter { it.documentId == doc.id }
+                            for (h in histories) {
+                                historyDao.deleteHistory(h.id)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        documentDao.deleteDocument(doc.id)
+                    }
+
+                    // 2. Delete folders
+                    val folders = folderDao.getAllFoldersDirect().filter { it.projectId == projectId }
+                    for (f in folders) {
+                        folderDao.deleteFolder(f.id)
+                    }
+
+                    // 3. Delete the project itself
+                    projectDao.hardDeleteProject(projectId)
+
+                    // 4. Delete the setting mapping and sync ticks
+                    settingsDao.deleteSetting(setting.configKey)
+                    settingsDao.deleteSetting("last_sync_local_tick_$projectId")
+                    settingsDao.deleteSetting("last_sync_remote_tick_$projectId")
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun getLastSyncLocal(projectId: Long): Long = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("last_sync_local_tick_$projectId")?.toLongOrNull() ?: 0L
+    }
+
+    suspend fun getLastSyncRemote(projectId: Long): Long = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("last_sync_remote_tick_$projectId")?.toLongOrNull() ?: 0L
+    }
+
+    suspend fun saveSyncTicks(projectId: Long, localTick: Long, remoteTick: Long) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("last_sync_local_tick_$projectId", localTick.toString()))
+        settingsDao.saveSetting(AppSetting("last_sync_remote_tick_$projectId", remoteTick.toString()))
+    }
 }
 

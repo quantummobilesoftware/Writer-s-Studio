@@ -135,6 +135,9 @@ interface SettingsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveSetting(setting: AppSetting)
 
+    @Query("DELETE FROM app_settings WHERE configKey = :key")
+    suspend fun deleteSetting(key: String)
+
     @Query("SELECT * FROM app_settings")
     suspend fun getAllSettingsDirect(): List<AppSetting>
 }
