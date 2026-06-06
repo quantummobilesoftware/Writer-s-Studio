@@ -25,15 +25,15 @@ class WriterRepository(private val db: WriterDatabase) {
     private val settingsDao = db.settingsDao()
 
     // --- Projects ---
-    val activeProjectsFlow: Flow<List<WorkspaceProject>> = projectDao.getAllActiveProjectsFlow()
-    val archivedProjectsFlow: Flow<List<WorkspaceProject>> = projectDao.getArchivedProjectsFlow()
-    val trashProjectsFlow: Flow<List<WorkspaceProject>> = projectDao.getTrashProjectsFlow()
+    fun getActiveProjectsFlow(ownerEmail: String): Flow<List<WorkspaceProject>> = projectDao.getAllActiveProjectsFlow(ownerEmail)
+    fun getArchivedProjectsFlow(ownerEmail: String): Flow<List<WorkspaceProject>> = projectDao.getArchivedProjectsFlow(ownerEmail)
+    fun getTrashProjectsFlow(ownerEmail: String): Flow<List<WorkspaceProject>> = projectDao.getTrashProjectsFlow(ownerEmail)
 
     suspend fun getProjectById(id: Long): WorkspaceProject? = withContext(Dispatchers.IO) {
         projectDao.getProjectById(id)
     }
 
-    suspend fun createProject(title: String, type: String, colorHex: String, password: String? = null): Long = withContext(Dispatchers.IO) {
+    suspend fun createProject(title: String, type: String, colorHex: String, password: String? = null, ownerEmail: String = "local"): Long = withContext(Dispatchers.IO) {
         val allProjs = projectDao.getAllProjectsDirect()
         val maxSort = allProjs.maxOfOrNull { it.sortOrder } ?: 0
         val proj = WorkspaceProject(
@@ -43,7 +43,8 @@ class WriterRepository(private val db: WriterDatabase) {
             passwordHash = password,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis(),
-            sortOrder = maxSort + 1
+            sortOrder = maxSort + 1,
+            ownerEmail = ownerEmail
         )
         projectDao.insertProject(proj)
     }
@@ -218,6 +219,30 @@ class WriterRepository(private val db: WriterDatabase) {
         settingsDao.saveSetting(AppSetting("author_email", email))
     }
 
+    suspend fun getLocalAuthorName(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("local_author_name") ?: "Писатель"
+    }
+
+    suspend fun saveLocalAuthorName(name: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("local_author_name", name))
+    }
+
+    suspend fun getLocalAuthorBio(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("local_author_bio") ?: "Вдохновение рождается во время работы."
+    }
+
+    suspend fun saveLocalAuthorBio(bio: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("local_author_bio", bio))
+    }
+
+    suspend fun getLocalAuthorAvatar(): String = withContext(Dispatchers.IO) {
+        settingsDao.getSetting("local_author_avatar") ?: ""
+    }
+
+    suspend fun saveLocalAuthorAvatar(path: String) = withContext(Dispatchers.IO) {
+        settingsDao.saveSetting(AppSetting("local_author_avatar", path))
+    }
+
     suspend fun getAuthorAvatar(): String = withContext(Dispatchers.IO) {
         settingsDao.getSetting("author_avatar") ?: ""
     }
@@ -299,6 +324,7 @@ class WriterRepository(private val db: WriterDatabase) {
                 put("createdAt", item.createdAt)
                 put("updatedAt", item.updatedAt)
                 put("sortOrder", item.sortOrder)
+                put("ownerEmail", item.ownerEmail)
             })
         }
         backupObj.put("projects", projectsArr)
@@ -405,7 +431,8 @@ class WriterRepository(private val db: WriterDatabase) {
                         passwordHash = obj.optString("passwordHash").ifEmpty { null },
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
-                        sortOrder = obj.optInt("sortOrder", 0)
+                        sortOrder = obj.optInt("sortOrder", 0),
+                        ownerEmail = obj.optString("ownerEmail", "local")
                     )
                     projectDao.insertProject(proj)
                 }
@@ -580,6 +607,7 @@ class WriterRepository(private val db: WriterDatabase) {
         root.put("createdAt", project.createdAt)
         root.put("updatedAt", project.updatedAt)
         root.put("sortOrder", project.sortOrder)
+        root.put("ownerEmail", project.ownerEmail)
 
         // Folders
         val foldersArr = JSONArray()
@@ -614,7 +642,7 @@ class WriterRepository(private val db: WriterDatabase) {
         root.toString()
     }
 
-    suspend fun importProjectFromJson(jsonString: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun importProjectFromJson(jsonString: String, ownerEmail: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
             val root = JSONObject(jsonString)
             val uuid = root.getString("uuid")
@@ -628,6 +656,7 @@ class WriterRepository(private val db: WriterDatabase) {
             val createdAt = root.optLong("createdAt", System.currentTimeMillis())
             val updatedAt = root.optLong("updatedAt", System.currentTimeMillis())
             val sortOrder = root.optInt("sortOrder", 0)
+            val ownerEmailToUse = ownerEmail ?: root.optString("ownerEmail", "local")
 
             val existingProjectId = getProjectIdByUuid(uuid)
             val localProjectId: Long
@@ -650,7 +679,8 @@ class WriterRepository(private val db: WriterDatabase) {
                         passwordHash = passwordHash,
                         createdAt = createdAt,
                         updatedAt = updatedAt,
-                        sortOrder = sortOrder
+                        sortOrder = sortOrder,
+                        ownerEmail = ownerEmailToUse
                     )
                     projectDao.insertProject(updatedProj)
                     localProjectId = existingProjectId
@@ -675,7 +705,8 @@ class WriterRepository(private val db: WriterDatabase) {
                         passwordHash = passwordHash,
                         createdAt = createdAt,
                         updatedAt = updatedAt,
-                        sortOrder = sortOrder
+                        sortOrder = sortOrder,
+                        ownerEmail = ownerEmailToUse
                     )
                     localProjectId = projectDao.insertProject(proj)
                     settingsDao.saveSetting(AppSetting("drive_uuid_$localProjectId", uuid))
@@ -691,7 +722,8 @@ class WriterRepository(private val db: WriterDatabase) {
                     passwordHash = passwordHash,
                     createdAt = createdAt,
                     updatedAt = updatedAt,
-                    sortOrder = sortOrder
+                    sortOrder = sortOrder,
+                    ownerEmail = ownerEmailToUse
                 )
                 localProjectId = projectDao.insertProject(proj)
                 settingsDao.saveSetting(AppSetting("drive_uuid_$localProjectId", uuid))

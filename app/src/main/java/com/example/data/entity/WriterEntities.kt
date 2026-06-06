@@ -15,7 +15,8 @@ data class WorkspaceProject(
     val passwordHash: String? = null, // password dynamic block layer
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val ownerEmail: String = "local"
 )
 
 @Entity(tableName = "folders")

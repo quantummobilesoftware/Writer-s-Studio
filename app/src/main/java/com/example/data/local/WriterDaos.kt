@@ -6,14 +6,14 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ProjectDao {
-    @Query("SELECT * FROM projects WHERE isInTrash = 0 AND isArchived = 0 ORDER BY sortOrder ASC, updatedAt DESC")
-    fun getAllActiveProjectsFlow(): Flow<List<WorkspaceProject>>
+    @Query("SELECT * FROM projects WHERE isInTrash = 0 AND isArchived = 0 AND ownerEmail = :ownerEmail ORDER BY sortOrder ASC, updatedAt DESC")
+    fun getAllActiveProjectsFlow(ownerEmail: String): Flow<List<WorkspaceProject>>
 
-    @Query("SELECT * FROM projects WHERE isArchived = 1 AND isInTrash = 0 ORDER BY sortOrder ASC, updatedAt DESC")
-    fun getArchivedProjectsFlow(): Flow<List<WorkspaceProject>>
+    @Query("SELECT * FROM projects WHERE isArchived = 1 AND isInTrash = 0 AND ownerEmail = :ownerEmail ORDER BY sortOrder ASC, updatedAt DESC")
+    fun getArchivedProjectsFlow(ownerEmail: String): Flow<List<WorkspaceProject>>
 
-    @Query("SELECT * FROM projects WHERE isInTrash = 1 ORDER BY sortOrder ASC, updatedAt DESC")
-    fun getTrashProjectsFlow(): Flow<List<WorkspaceProject>>
+    @Query("SELECT * FROM projects WHERE isInTrash = 1 AND ownerEmail = :ownerEmail ORDER BY sortOrder ASC, updatedAt DESC")
+    fun getTrashProjectsFlow(ownerEmail: String): Flow<List<WorkspaceProject>>
 
     @Query("SELECT * FROM projects WHERE id = :id LIMIT 1")
     suspend fun getProjectById(id: Long): WorkspaceProject?

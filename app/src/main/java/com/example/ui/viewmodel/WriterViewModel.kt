@@ -40,15 +40,7 @@ data class SyncConflict(
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
 
-    // --- Active Projects ---
-    val activeProjects: StateFlow<List<WorkspaceProject>> = repository.activeProjectsFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val archivedProjects: StateFlow<List<WorkspaceProject>> = repository.archivedProjectsFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val trashProjects: StateFlow<List<WorkspaceProject>> = repository.trashProjectsFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val statistics: StateFlow<List<ProductivityStat>> = repository.statsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -111,6 +103,39 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
 
     private val _cloudSyncEnabled = MutableStateFlow(false)
     val cloudSyncEnabled: StateFlow<Boolean> = _cloudSyncEnabled.asStateFlow()
+
+    private val _localAuthorName = MutableStateFlow("Писатель")
+    val localAuthorName: StateFlow<String> = _localAuthorName.asStateFlow()
+
+    private val _localAuthorBio = MutableStateFlow("Вдохновение рождается во время работы.")
+    val localAuthorBio: StateFlow<String> = _localAuthorBio.asStateFlow()
+
+    private val _localAuthorAvatar = MutableStateFlow("")
+    val localAuthorAvatar: StateFlow<String> = _localAuthorAvatar.asStateFlow()
+
+    // --- Active Projects (Dynamically switched based on active account) ---
+    val activeProjects: StateFlow<List<WorkspaceProject>> = authorEmail
+        .flatMapLatest { email ->
+            val owner = if (email.isEmpty()) "local" else email
+            repository.getActiveProjectsFlow(owner)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val archivedProjects: StateFlow<List<WorkspaceProject>> = authorEmail
+        .flatMapLatest { email ->
+            val owner = if (email.isEmpty()) "local" else email
+            repository.getArchivedProjectsFlow(owner)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val trashProjects: StateFlow<List<WorkspaceProject>> = authorEmail
+        .flatMapLatest { email ->
+            val owner = if (email.isEmpty()) "local" else email
+            repository.getTrashProjectsFlow(owner)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+
 
 
 
@@ -196,12 +221,48 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             _themeMode.value = repository.getThemeMode()
             _colorPalette.value = repository.getColorPalette()
             _interfaceStyle.value = repository.getInterfaceStyle()
-            _authorName.value = repository.getAuthorName()
-            _authorBio.value = repository.getAuthorBio()
+            
+            _localAuthorName.value = repository.getLocalAuthorName()
+            _localAuthorBio.value = repository.getLocalAuthorBio()
+            _localAuthorAvatar.value = repository.getLocalAuthorAvatar()
+            
             _authorEmail.value = repository.getAuthorEmail()
-            _authorAvatar.value = repository.getAuthorAvatar()
-            _cloudSyncEnabled.value = repository.getCloudSyncEnabled()
             _googleUserId.value = repository.getGoogleUserId()
+            
+            if (_googleUserId.value.isNotEmpty()) {
+                _authorName.value = repository.getAuthorName()
+                _authorAvatar.value = repository.getAuthorAvatar()
+                _authorBio.value = _localAuthorBio.value
+            } else {
+                _authorName.value = _localAuthorName.value
+                _authorAvatar.value = _localAuthorAvatar.value
+                _authorBio.value = _localAuthorBio.value
+            }
+            
+            _cloudSyncEnabled.value = repository.getCloudSyncEnabled()
+        }
+    }
+
+    fun setLocalAuthorProfile(name: String, bio: String) {
+        viewModelScope.launch {
+            repository.saveLocalAuthorName(name)
+            repository.saveLocalAuthorBio(bio)
+            _localAuthorName.value = name
+            _localAuthorBio.value = bio
+            if (_googleUserId.value.isEmpty()) {
+                _authorName.value = name
+                _authorBio.value = bio
+            }
+        }
+    }
+
+    fun setLocalAuthorAvatar(path: String) {
+        viewModelScope.launch {
+            repository.saveLocalAuthorAvatar(path)
+            _localAuthorAvatar.value = path
+            if (_googleUserId.value.isEmpty()) {
+                _authorAvatar.value = path
+            }
         }
     }
 
@@ -269,26 +330,25 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
             }
 
             try {
-                // Clean up synced projects locally so they disappear upon logging out
-                repository.cleanUpSyncedProjectsOnLogout()
+                // DO NOT delete synced projects locally anymore. We keep them segregated in local DB and switch view flows.
                 _selectedProject.value = null
                 _selectedFolder.value = null
                 _activeDocument.value = null
 
-                repository.saveAuthorName("Писатель")
-                repository.saveAuthorBio("Вдохновение рождается во время работы.")
                 repository.saveAuthorEmail("")
                 repository.saveAuthorAvatar("")
                 repository.saveGoogleUserId("")
                 repository.saveCloudSyncEnabled(false)
 
-                _authorName.value = "Писатель"
-                _authorBio.value = "Вдохновение рождается во время работы."
                 _authorEmail.value = ""
-                _authorAvatar.value = ""
                 _googleUserId.value = ""
                 _cloudSyncEnabled.value = false
-                Log.d("GoogleSignIn", "[Google Disconnect] Stored credentials reset to default offline writer profile.")
+
+                // Revert active states to local profile values!
+                _authorName.value = _localAuthorName.value
+                _authorBio.value = _localAuthorBio.value
+                _authorAvatar.value = _localAuthorAvatar.value
+                Log.d("GoogleSignIn", "[Google Disconnect] Active profile reverted to local settings.")
             } catch (e: Exception) {
                 Log.e("GoogleSignIn", "[Google Disconnect] Error clearing account details: ${e.message}", e)
             }
@@ -451,7 +511,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                                     Log.d("WriterViewModel", "[Sync] Remote is newer (tick) for ${localProj.title}. Downloading...")
                                     val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
                                     if (fileContent != null) {
-                                        repository.importProjectFromJson(fileContent)
+                                        repository.importProjectFromJson(fileContent, email)
                                         val updatedProj = repository.getProjectById(localProj.id)
                                         val finalLocalTick = updatedProj?.updatedAt ?: localProj.updatedAt
                                         repository.saveSyncTicks(localProj.id, finalLocalTick, remoteFile.modifiedTime)
@@ -475,7 +535,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                                     Log.d("WriterViewModel", "[Initial Sync] Remote is newer for ${localProj.title}. Downloading...")
                                     val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
                                     if (fileContent != null) {
-                                        repository.importProjectFromJson(fileContent)
+                                        repository.importProjectFromJson(fileContent, email)
                                         val updatedProj = repository.getProjectById(localProj.id)
                                         val finalLocalTick = updatedProj?.updatedAt ?: localProj.updatedAt
                                         repository.saveSyncTicks(localProj.id, finalLocalTick, remoteFile.modifiedTime)
@@ -498,7 +558,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                         Log.d("WriterViewModel", "Found brand-new remote project with UUID ${remoteFile.uuid}. Downloading...")
                         val fileContent = GoogleDriveService.downloadFileContent(context, email, remoteFile.fileId)
                         if (fileContent != null) {
-                            repository.importProjectFromJson(fileContent)
+                            repository.importProjectFromJson(fileContent, email)
                             val newPid = repository.getProjectIdByUuid(remoteFile.uuid)
                             if (newPid != null) {
                                 val newProj = repository.getProjectById(newPid)
@@ -558,11 +618,12 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
     }
 
     fun resolveConflictWithCloud(conflict: SyncConflict, context: Context) {
+        val email = _authorEmail.value
         viewModelScope.launch {
             if (_isSyncing.value) return@launch
             _isSyncing.value = true
             try {
-                val success = repository.importProjectFromJson(conflict.remoteContent)
+                val success = repository.importProjectFromJson(conflict.remoteContent, email.ifEmpty { null })
                 if (success) {
                     val updatedProj = repository.getProjectById(conflict.projectId)
                     val finalLocalTick = updatedProj?.updatedAt ?: conflict.localUpdatedAt
@@ -594,7 +655,7 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
                 jsonObj.put("uuid", newUuid)
                 jsonObj.put("title", "$originalTitle (Cloud Copy)")
 
-                val imported = repository.importProjectFromJson(jsonObj.toString())
+                val imported = repository.importProjectFromJson(jsonObj.toString(), email)
                 if (imported) {
                     val newProjectId = repository.getProjectIdByUuid(newUuid)
                     if (newProjectId != null) {
@@ -792,7 +853,8 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
 
     fun createProject(title: String, type: String, colorHex: String, password: String? = null) {
         viewModelScope.launch {
-            val newId = repository.createProject(title, type, colorHex, password)
+            val email = if (_authorEmail.value.isEmpty()) "local" else _authorEmail.value
+            val newId = repository.createProject(title, type, colorHex, password, email)
             triggerProjectSync(newId)
         }
     }

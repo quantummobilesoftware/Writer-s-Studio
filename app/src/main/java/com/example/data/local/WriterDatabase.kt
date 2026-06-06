@@ -17,7 +17,7 @@ import com.example.data.entity.*
         ProductivityStat::class,
         AppSetting::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
