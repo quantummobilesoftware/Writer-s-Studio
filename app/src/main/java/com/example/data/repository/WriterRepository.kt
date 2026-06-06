@@ -409,19 +409,24 @@ class WriterRepository(private val db: WriterDatabase) {
         backupObj.toString()
     }
 
-    suspend fun importBackupJson(backupData: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun importBackupJson(backupData: String, overrideOwnerEmail: String? = null): List<Long>? = withContext(Dispatchers.IO) {
         try {
             val root = JSONObject(backupData)
             val version = root.optInt("backup_version", 0)
-            if (version == 0) return@withContext false
+            if (version == 0) return@withContext null
+
+            val restoredProjectIds = mutableListOf<Long>()
 
             // Restore Projects
             if (root.has("projects")) {
                 val arr = root.getJSONArray("projects")
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
+                    val pId = obj.getLong("id")
+                    restoredProjectIds.add(pId)
+                    val finalOwnerEmail = overrideOwnerEmail ?: obj.optString("ownerEmail", "local")
                     val proj = WorkspaceProject(
-                        id = obj.getLong("id"),
+                        id = pId,
                         title = obj.getString("title"),
                         type = obj.optString("type", "BOOK"),
                         colorHex = obj.optString("colorHex", "#6200EE"),
@@ -432,7 +437,7 @@ class WriterRepository(private val db: WriterDatabase) {
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
                         sortOrder = obj.optInt("sortOrder", 0),
-                        ownerEmail = obj.optString("ownerEmail", "local")
+                        ownerEmail = finalOwnerEmail
                     )
                     projectDao.insertProject(proj)
                 }
@@ -563,10 +568,10 @@ class WriterRepository(private val db: WriterDatabase) {
                 }
             }
 
-            true
+            restoredProjectIds
         } catch (e: Exception) {
             e.printStackTrace()
-            false
+            null
         }
     }
 

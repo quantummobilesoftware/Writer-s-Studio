@@ -1383,10 +1383,21 @@ class WriterViewModel(private val repository: WriterRepository) : ViewModel() {
         }
     }
 
-    fun runRestore(backupText: String, onComplete: (Boolean) -> Unit) {
+    fun runRestore(context: Context, backupText: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val result = repository.importBackupJson(backupText)
-            onComplete(result)
+            val email = _authorEmail.value
+            val overrideOwner = if (email.isEmpty()) "local" else email
+            val resultList = repository.importBackupJson(backupText, overrideOwner)
+            if (resultList != null) {
+                if (email.isNotEmpty() && _cloudSyncEnabled.value) {
+                    resultList.forEach { pId ->
+                        markProjectDirtyAndSync(context, pId)
+                    }
+                }
+                onComplete(true)
+            } else {
+                onComplete(false)
+            }
         }
     }
 

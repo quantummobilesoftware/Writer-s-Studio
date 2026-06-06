@@ -899,11 +899,24 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                         "TRASH" to l("trash", appLanguage)
                     ).forEach { (tabId, label) ->
                         val isSelected = currentSubTab == tabId
+                        val scaleSelected by animateFloatAsState(
+                            targetValue = if (isSelected) 1.05f else 1.0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            label = "chipScale"
+                        )
                         FilterChip(
                             selected = isSelected,
                             onClick = { currentSubTab = tabId },
                             label = { Text(label, fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .graphicsLayer {
+                                    scaleX = scaleSelected
+                                    scaleY = scaleSelected
+                                }
                         )
                     }
                 }
@@ -7891,7 +7904,7 @@ fun AppSettingsScreen(
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
                 val text = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
-                viewModel.runRestore(text) { success ->
+                viewModel.runRestore(context, text) { success ->
                     if (success) {
                         Toast.makeText(context, l("backup_success", appLanguage), Toast.LENGTH_LONG).show()
                     } else {
@@ -9070,27 +9083,48 @@ fun DashboardTabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val containerColor = if (isSelected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    }
+    val containerColorAnimated by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        },
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "tabContainerColor"
+    )
 
-    val contentColor = if (isSelected) {
-        Color(0xFF11121C)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-    }
+    val contentColorAnimated by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) {
+            Color(0xFF11121C)
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        },
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "tabContentColor"
+    )
+
+    val scaleAnimated by animateFloatAsState(
+        targetValue = if (isSelected) 1.05f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "tabScale"
+    )
 
     Card(
         onClick = onClick,
         modifier = modifier
+            .graphicsLayer {
+                scaleX = scaleAnimated
+                scaleY = scaleAnimated
+            }
             .height(72.dp)
             .fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = containerColor,
-            contentColor = contentColor
+            containerColor = containerColorAnimated,
+            contentColor = contentColorAnimated
         )
     ) {
         Column(
