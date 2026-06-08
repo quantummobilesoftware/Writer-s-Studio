@@ -198,17 +198,33 @@ fun WriterAppMainLayout(viewModel: WriterViewModel) {
 
     val activePrimaryColor = basePrimaryColor
 
+    val dynamicOnPrimaryColor = if (themeMode == "BLACK") {
+        Color.Black
+    } else {
+        when (colorPalette) {
+            "BLUE" -> Color(0xFF001F42)
+            "GREEN" -> Color(0xFF00210B)
+            "ORANGE" -> Color(0xFF341100)
+            "RED" -> Color(0xFF410002)
+            "CORAL" -> Color(0xFF400200)
+            "YELLOW" -> Color(0xFF2C1C00)
+            "PINK" -> Color(0xFF3F0013)
+            "GREY" -> Color(0xFF1A1A1A)
+            else -> Color(0xFF2D1600) // AMBER/default
+        }
+    }
+
     MaterialTheme(
         colorScheme = if (themeMode == "DARK" || themeMode == "BLACK") {
             darkColorScheme(
                 primary = activePrimaryColor,
-                onPrimary = if (themeMode == "BLACK") Color.Black else Color(0xFF381E72),
+                onPrimary = dynamicOnPrimaryColor,
                 background = if (themeMode == "BLACK") Color(0xFF000000) else WriterThemeColors.DarkBg,
                 onBackground = if (themeMode == "BLACK") Color(0xFFFFFFFF) else WriterThemeColors.DarkText,
                 surface = if (themeMode == "BLACK") Color(0xFF0C0C0C) else WriterThemeColors.DarkSurface,
                 onSurface = if (themeMode == "BLACK") Color(0xFFFFFFFF) else WriterThemeColors.DarkText,
                 primaryContainer = activePrimaryColor,
-                onPrimaryContainer = if (themeMode == "BLACK") Color.Black else Color(0xFF381E72),
+                onPrimaryContainer = dynamicOnPrimaryColor,
                 secondaryContainer = if (themeMode == "BLACK") Color(0xFF1A1A1A) else Color(0xFF49454F),
                 onSecondaryContainer = if (themeMode == "BLACK") Color(0xFFECECEC) else Color(0xFFCAC4D0),
                 surfaceVariant = if (themeMode == "BLACK") Color(0xFF141414) else Color(0xFF211F26),
@@ -1032,6 +1048,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
         val colorsPalette = listOf("#6200EE", "#D32F2F", "#388E3C", "#1976D2", "#FBC02D", "#7B1FA2", "#808080")
         var selectedCol by remember { mutableStateOf("#6200EE") }
 
+        val coroutineScope = rememberCoroutineScope()
+        val dragOffsetY = remember { androidx.compose.animation.core.Animatable(0f) }
+
         androidx.compose.ui.window.Dialog(
             onDismissRequest = { showCreateDialog = false },
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
@@ -1053,6 +1072,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             indication = null
                         ) {}
+                        .graphicsLayer {
+                            translationY = dragOffsetY.value
+                        }
                         .navigationBarsPadding()
                         .imePadding()
                         .wrapContentHeight(),
@@ -1061,28 +1083,65 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                     tonalElevation = 8.dp
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 80.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Drag Handle
-                        Box(
+                        // Swipe-to-dismiss header containing drag handle and title
+                        Column(
                             modifier = Modifier
-                                .width(40.dp)
-                                .height(4.dp)
-                                .background(Color.Gray.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
-                                .align(Alignment.CenterHorizontally)
-                        )
+                                .fillMaxWidth()
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures(
+                                        onDragStart = {},
+                                        onDragEnd = {
+                                            if (dragOffsetY.value > 150f) {
+                                                showCreateDialog = false
+                                            } else {
+                                                coroutineScope.launch {
+                                                    dragOffsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                                }
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            coroutineScope.launch {
+                                                dragOffsetY.animateTo(0f, spring())
+                                            }
+                                        },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            coroutineScope.launch {
+                                                dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
+                                            }
+                                        }
+                                    )
+                                }
+                                .padding(top = 16.dp, bottom = 8.dp, start = 24.dp, end = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(44.dp)
+                                    .height(5.dp)
+                                    .background(Color.Gray.copy(alpha = 0.4f), RoundedCornerShape(2.5.dp))
+                            )
+                            
+                            Text(
+                                text = l("new_project_dialog_title", appLanguage),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp,
+                                color = Color.White,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
 
-                        // Title
-                        Text(
-                            text = l("new_project_dialog_title", appLanguage),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp,
-                            color = Color.White
-                        )
+                        // Form contents Scrollable view
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 24.dp, end = 24.dp, bottom = 80.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(20.dp)
+                        ) {
 
                         // 2. Project Title Field
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1295,13 +1354,14 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                 shape = RoundedCornerShape(24.dp),
                                 modifier = Modifier
                                     .testTag("confirm_create_project_button")
-                            ) {
-                                Text(
-                                    text = l("create", appLanguage),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                                )
+                                ) {
+                                    Text(
+                                        text = l("create", appLanguage),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1401,12 +1461,15 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                 val statusMessage = com.google.android.gms.common.api.CommonStatusCodes.getStatusCodeString(statusCode)
                 android.util.Log.e("GoogleSignIn", "[Auth Failed] ApiException code=$statusCode ($statusMessage). message=${e.message}", e)
                 
-                authErrorDialogMessage = when (statusCode) {
-                    10 -> "Google Sign-In returned Code 10 (DEVELOPER_ERROR).\n\n" +
-                            "This means the SHA-1 of your signing key (${getAppSha1(localContext)}) or App Package Name (com.aistudio.writerstudio.gmqfkv) is not registered in the Google Developer Console Client IDs."
-                    7 -> "Network error during Google Sign-In. Please check your connection."
-                    12501 -> "Google Sign-In was cancelled by the user."
-                    else -> "Google API ApiException: ${e.message} (Code $statusCode: $statusMessage)"
+                if (statusCode == 12501 || statusCode == 12502 || e.message?.contains("cancel", ignoreCase = true) == true) {
+                    authErrorDialogMessage = null
+                } else {
+                    authErrorDialogMessage = when (statusCode) {
+                        10 -> "Google Sign-In returned Code 10 (DEVELOPER_ERROR).\n\n" +
+                                "This means the SHA-1 of your signing key (${getAppSha1(localContext)}) or App Package Name (com.aistudio.writerstudio.gmqfkv) is not registered in the Google Developer Console Client IDs."
+                        7 -> "Network error during Google Sign-In. Please check your connection."
+                        else -> "Google API ApiException: ${e.message} (Code $statusCode: $statusMessage)"
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("GoogleSignIn", "[Auth Failed] General unexpected Exception: ${e.message}", e)
@@ -1433,56 +1496,50 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                     ) { showAccountDialog = false },
                 contentAlignment = Alignment.Center
             ) {
-                val containerColorVal = MaterialTheme.colorScheme.primaryContainer
                 Surface(
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
                         .fillMaxWidth()
-                        .widthIn(max = 400.dp)
+                        .widthIn(max = 420.dp)
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             indication = null
                         ) {}
-                        .wrapContentHeight(),
+                        .imePadding()
+                        .navigationBarsPadding()
+                        .wrapContentHeight()
+                        .heightIn(max = 620.dp),
                     shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
+                    color = Color(0xFF232128), // Beautiful rich dark violet card in photo
+                    border = BorderStroke(1.2.dp, Color(0xFF32303A)),
                     tonalElevation = 12.dp
                 ) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .drawBehind {
-                                val gradientBrush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        containerColorVal.copy(alpha = 0.25f),
-                                        containerColorVal.copy(alpha = 0.02f),
-                                        Color.Transparent
-                                    ),
-                                    startY = 0f,
-                                    endY = 120.dp.toPx()
-                                )
-                                drawRect(
-                                    brush = gradientBrush,
-                                    size = size.copy(height = 120.dp.toPx())
-                                )
-                            }
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(24.dp)
-                                .verticalScroll(rememberScrollState()),
+                                .padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(20.dp)
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Header segment containing Title and Close IconButton
+                            // 1. Drag Handle
+                            Box(
+                                modifier = Modifier
+                                    .width(44.dp)
+                                    .height(5.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF535258))
+                            )
+
+                            // 2. Header (Title + Subtitle + Close Button)
                             Box(
                                 modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.CenterStart
                             ) {
                                 Column(
-                                    modifier = Modifier.fillMaxWidth().padding(end = 40.dp),
-                                    horizontalAlignment = Alignment.Start
+                                    modifier = Modifier.fillMaxWidth().padding(end = 44.dp)
                                 ) {
                                     Text(
                                         text = when (appLanguage) {
@@ -1491,8 +1548,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                             else -> "Author Profile"
                                         },
                                         style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 22.sp,
+                                        color = Color.White
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
@@ -1502,169 +1560,186 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                             else -> "Your creative signature"
                                         },
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                        color = Color.White.copy(alpha = 0.5f)
                                     )
                                 }
+                                
                                 IconButton(
                                     onClick = { showAccountDialog = false },
                                     modifier = Modifier
-                                        .align(Alignment.TopEnd)
+                                        .align(Alignment.CenterEnd)
                                         .background(
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                            color = Color.White.copy(alpha = 0.08f),
                                             shape = CircleShape
                                         )
-                                        .size(32.dp)
+                                        .size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Close",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
+                                        tint = Color.White.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
 
-                            // Tab Selection Row
-                            TabRow(
-                                selectedTabIndex = selectedTabIndex,
-                                modifier = Modifier.fillMaxWidth(),
-                                containerColor = Color.Transparent,
-                                contentColor = MaterialTheme.colorScheme.primary,
-                                divider = {}
+                            // 3. Segmented Control / Tab Selection Row (matches photo style)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF16151A))
+                                    .padding(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Tab(
-                                    selected = selectedTabIndex == 0,
-                                    onClick = { selectedTabIndex = 0 },
-                                    text = {
-                                        Text(
-                                            text = when (appLanguage) {
-                                                "ru" -> "Локальный профиль"
-                                                "es" -> "Perfil Local"
-                                                else -> "Local Profile"
-                                            },
-                                            fontWeight = FontWeight.Bold,
-                                            style = MaterialTheme.typography.labelMedium
-                                        )
-                                    }
-                                )
-                                Tab(
-                                    selected = selectedTabIndex == 1,
-                                    onClick = { selectedTabIndex = 1 },
-                                    text = {
-                                        Text(
-                                            text = when (appLanguage) {
-                                                "ru" -> "Google Аккаунт"
-                                                "es" -> "Cuenta Google"
-                                                else -> "Google Account"
-                                            },
-                                            fontWeight = FontWeight.Bold,
-                                            style = MaterialTheme.typography.labelMedium
-                                        )
-                                    }
-                                )
+                                val localProfileText = when (appLanguage) {
+                                    "ru" -> "Локальный профиль"
+                                    "es" -> "Perfil Local"
+                                    else -> "Local Profile"
+                                }
+                                val googleAccountText = when (appLanguage) {
+                                    "ru" -> "Google Аккаунт"
+                                    "es" -> "Cuenta Google"
+                                    else -> "Google Account"
+                                }
+
+                                // Segment 1: Local Profile
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selectedTabIndex == 0) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { selectedTabIndex = 0 }
+                                        .padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = localProfileText,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (selectedTabIndex == 0) MaterialTheme.colorScheme.onPrimary else Color.White.copy(alpha = 0.6f)
+                                    )
+                                }
+                                
+                                // Segment 2: Google Account
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selectedTabIndex == 1) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { selectedTabIndex = 1 }
+                                        .padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = googleAccountText,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (selectedTabIndex == 1) MaterialTheme.colorScheme.onPrimary else Color.White.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
 
-                            if (selectedTabIndex == 0) {
-                                // 1. LOCAL PROFILE SECTION
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f, fill = false)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                if (selectedTabIndex == 0) {
+                                // 4. LOCAL PROFILE MAIN CARD (replicates photo perfectly)
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                        containerColor = Color(0xFF1B1B22)
                                     ),
                                     border = BorderStroke(
                                         1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                        Color(0xFF2E2D38)
                                     ),
-                                    shape = RoundedCornerShape(12.dp)
+                                    shape = RoundedCornerShape(16.dp)
                                 ) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Compact Avatar block
+                                            // Avatar and override badge
                                             Box(
                                                 modifier = Modifier
-                                                    .size(64.dp)
-                                                    .bounceClickable { avatarPickerLauncher.launch("image/*") }
+                                                    .size(80.dp)
                                                     .testTag("select_avatar_trigger"),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxSize()
-                                                        .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
-                                                        .padding(2.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF2B2931))
+                                                        .clickable { avatarPickerLauncher.launch("image/*") }
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .clip(CircleShape)
-                                                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        if (editAvatarPath.isNotEmpty()) {
-                                                            AsyncImage(
-                                                                model = editAvatarPath,
-                                                                contentDescription = "Profile Picture",
-                                                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                                            )
-                                                        } else {
+                                                    if (editAvatarPath.isNotEmpty()) {
+                                                        AsyncImage(
+                                                            model = editAvatarPath,
+                                                            contentDescription = "Profile Picture",
+                                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                        )
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
                                                             Text(
                                                                 text = if (editName.isNotEmpty()) editName.take(1).uppercase() else "A",
                                                                 style = MaterialTheme.typography.titleLarge,
-                                                                fontWeight = FontWeight.Black,
+                                                                fontWeight = FontWeight.ExtraBold,
                                                                 color = MaterialTheme.colorScheme.primary
                                                             )
                                                         }
                                                     }
                                                 }
-                                                
-                                                Surface(
+                                                Box(
                                                     modifier = Modifier
                                                         .align(Alignment.BottomEnd)
-                                                        .size(20.dp),
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    tonalElevation = 2.dp,
-                                                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface)
+                                                        .size(24.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primary)
+                                                        .clickable { avatarPickerLauncher.launch("image/*") }
+                                                        .border(2.dp, Color(0xFF1B1B22), CircleShape),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Edit,
-                                                            contentDescription = "Edit photo",
-                                                            tint = MaterialTheme.colorScheme.onPrimary,
-                                                            modifier = Modifier.size(10.dp)
-                                                        )
-                                                    }
+                                                    Icon(
+                                                        imageVector = Icons.Default.Edit,
+                                                        contentDescription = "Edit photo",
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
                                                 }
                                             }
 
-                                            // Username text field and stats inline
+                                            // Pen Name Input and Statistics Row
                                             Column(
                                                 modifier = Modifier.weight(1f),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Outlined.Edit,
+                                                        imageVector = Icons.Default.Edit,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                                        tint = Color(0xFFB4A2DB),
                                                         modifier = Modifier.size(12.dp)
                                                     )
                                                     Text(
@@ -1674,17 +1749,18 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                             else -> "words"
                                                         },
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = Color.White.copy(alpha = 0.7f)
                                                     )
                                                     Text(
                                                         text = "•",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                        color = Color.White.copy(alpha = 0.4f)
                                                     )
                                                     Icon(
                                                         imageVector = Icons.Outlined.Folder,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                                        tint = Color(0xFFB4A2DB),
                                                         modifier = Modifier.size(12.dp)
                                                     )
                                                     Text(
@@ -1694,78 +1770,110 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                             else -> "proj."
                                                         },
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = Color.White.copy(alpha = 0.7f)
                                                     )
                                                 }
 
-                                                OutlinedTextField(
-                                                    value = editName,
-                                                    onValueChange = { editName = it },
-                                                    label = {
-                                                        Text(
-                                                            when (appLanguage) {
-                                                                "ru" -> "Имя писателя"
-                                                                "es" -> "Nombre"
-                                                                else -> "Pen Name"
-                                                            },
-                                                            style = MaterialTheme.typography.bodySmall
-                                                        )
-                                                    },
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .testTag("profile_name_input"),
-                                                    singleLine = true,
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    colors = OutlinedTextFieldDefaults.colors(
-                                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                                        focusedLabelColor = MaterialTheme.colorScheme.primary,
-                                                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    ),
-                                                    textStyle = MaterialTheme.typography.bodyMedium
-                                                )
+                                                Box(modifier = Modifier.fillMaxWidth()) {
+                                                    OutlinedTextField(
+                                                        value = editName,
+                                                        onValueChange = { if (it.length <= 40) editName = it },
+                                                        label = {
+                                                            Text(
+                                                                when (appLanguage) {
+                                                                    "ru" -> "Псевдоним"
+                                                                    "es" -> "Seudónimo"
+                                                                    else -> "Pen Name"
+                                                                }
+                                                            )
+                                                        },
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .testTag("profile_name_input"),
+                                                        singleLine = true,
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        colors = OutlinedTextFieldDefaults.colors(
+                                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                                            unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
+                                                            focusedContainerColor = Color.Transparent,
+                                                            unfocusedContainerColor = Color.Transparent,
+                                                            focusedTextColor = Color.White,
+                                                            unfocusedTextColor = Color.White
+                                                        ),
+                                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                                    )
+                                                    Text(
+                                                        text = "${editName.length}/40",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontSize = 11.sp,
+                                                        color = Color.White.copy(alpha = 0.5f),
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomEnd)
+                                                            .padding(bottom = 12.dp, end = 12.dp)
+                                                    )
+                                                }
                                             }
                                         }
 
-                                        OutlinedTextField(
-                                            value = editBio,
-                                            onValueChange = { editBio = it },
-                                            label = {
-                                                Text(
-                                                    when (appLanguage) {
-                                                        "ru" -> "Девиз или О себе"
-                                                        "es" -> "Biografía / Lema"
-                                                        else -> "Motto or Bio"
-                                                    },
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                            },
-                                            placeholder = {
-                                                Text(
-                                                    when (appLanguage) {
-                                                        "ru" -> "Ваше творческое кредо..."
-                                                        "es" -> "Tu credo creativo..."
-                                                        else -> "Your creative motto..."
-                                                    },
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .testTag("profile_bio_input"),
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                                                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                            ),
-                                            textStyle = MaterialTheme.typography.bodyMedium
-                                        )
+                                        // Motto or Bio Row
+                                        Box(modifier = Modifier.fillMaxWidth()) {
+                                            OutlinedTextField(
+                                                value = editBio,
+                                                onValueChange = { if (it.length <= 140) editBio = it },
+                                                label = {
+                                                    Text(
+                                                        when (appLanguage) {
+                                                            "ru" -> "Девиз или О себе"
+                                                            "es" -> "Biografía / Lema"
+                                                            else -> "Motto or Bio"
+                                                        }
+                                                    )
+                                                },
+                                                placeholder = {
+                                                    Text(
+                                                        when (appLanguage) {
+                                                            "ru" -> "Ваше творческое кредо..."
+                                                            "es" -> "Tu credo creativo..."
+                                                            else -> "Your creative motto..."
+                                                        },
+                                                        color = Color.White.copy(alpha = 0.3f)
+                                                    )
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("profile_bio_input"),
+                                                minLines = 3,
+                                                maxLines = 4,
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                                    unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
+                                                    focusedContainerColor = Color.Transparent,
+                                                    unfocusedContainerColor = Color.Transparent,
+                                                    focusedTextColor = Color.White,
+                                                    unfocusedTextColor = Color.White
+                                                ),
+                                                textStyle = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                text = "${editBio.length}/140",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 11.sp,
+                                                color = Color.White.copy(alpha = 0.5f),
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .padding(bottom = 12.dp, end = 12.dp)
+                                            )
+                                        }
                                     }
                                 }
                             } else {
-                                // 2. GOOGLE ACCOUNT Sync SECTION
+                                // 5. GOOGLE ACCOUNT SECTION
                                 if (isSyncing) {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().height(2.dp)
@@ -1783,41 +1891,41 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                         .fillMaxWidth()
                                         .testTag("google_sync_card"),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                        containerColor = Color(0xFF1B1B22)
                                     ),
                                     border = BorderStroke(
                                         1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                        Color.White.copy(alpha = 0.15f)
                                     ),
-                                    shape = RoundedCornerShape(12.dp)
+                                    shape = RoundedCornerShape(16.dp)
                                 ) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         if (googleUserId.isNotEmpty()) {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .background(
-                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                                        RoundedCornerShape(8.dp)
+                                                        Color.White.copy(alpha = 0.05f),
+                                                        RoundedCornerShape(10.dp)
                                                     )
-                                                    .padding(8.dp),
+                                                    .padding(10.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(36.dp)
+                                                        .size(40.dp)
                                                         .clip(CircleShape)
                                                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     if (authorAvatar.isNotEmpty()) {
-                                                        coil.compose.AsyncImage(
+                                                        AsyncImage(
                                                             model = authorAvatar,
                                                             contentDescription = "Avatar",
                                                             modifier = Modifier.fillMaxSize().clip(CircleShape),
@@ -1828,7 +1936,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                             imageVector = Icons.Default.AccountCircle,
                                                             contentDescription = null,
                                                             tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(24.dp)
+                                                            modifier = Modifier.size(26.dp)
                                                         )
                                                     }
                                                 }
@@ -1836,23 +1944,23 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
                                                         text = if (authorName.isNotEmpty()) authorName else "Google User",
-                                                        style = MaterialTheme.typography.bodySmall,
+                                                        style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.onSurface
+                                                        color = Color.White
                                                     )
                                                     Text(
                                                         text = authorEmail,
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        color = Color.White.copy(alpha = 0.6f)
                                                     )
-                                                    Spacer(modifier = Modifier.height(1.dp))
+                                                    Spacer(modifier = Modifier.height(2.dp))
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
                                                         Box(
                                                             modifier = Modifier
-                                                                .size(5.dp)
+                                                                .size(6.dp)
                                                                 .clip(CircleShape)
                                                                 .background(
                                                                     if (isSyncing) MaterialTheme.colorScheme.primary 
@@ -1874,8 +1982,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                                 }
                                                             },
                                                             style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.Normal,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                            color = Color.White.copy(alpha = 0.7f)
                                                         )
                                                     }
                                                 }
@@ -1892,8 +1999,8 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                         "es" -> "Sincronización"
                                                         else -> "Auto-Backup"
                                                     },
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = Color.White
                                                 )
                                                 Switch(
                                                     checked = cloudSyncEnabled,
@@ -1904,7 +2011,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
 
                                             Column(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Button(
                                                     onClick = { 
@@ -1913,9 +2020,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                     },
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .height(34.dp)
+                                                        .height(40.dp)
                                                         .testTag("sync_now_button"),
-                                                    shape = RoundedCornerShape(8.dp),
+                                                    shape = RoundedCornerShape(10.dp),
                                                     colors = ButtonDefaults.buttonColors(
                                                         containerColor = MaterialTheme.colorScheme.primary,
                                                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1928,16 +2035,16 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                         Icon(
                                                             imageVector = Icons.Default.Refresh,
                                                             contentDescription = null,
-                                                            modifier = Modifier.size(14.dp)
+                                                            modifier = Modifier.size(16.dp)
                                                         )
-                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
                                                         Text(
                                                             text = when (appLanguage) {
                                                                 "ru" -> "Синхронизировать"
                                                                 "es" -> "Sincronizar"
                                                                 else -> "Sync Now"
                                                             },
-                                                            style = MaterialTheme.typography.labelSmall,
+                                                            style = MaterialTheme.typography.labelMedium,
                                                             fontWeight = FontWeight.Bold
                                                         )
                                                     }
@@ -1945,7 +2052,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
 
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
                                                     OutlinedButton(
                                                         onClick = {
@@ -1962,10 +2069,11 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                         },
                                                         modifier = Modifier
                                                             .weight(1f)
-                                                            .height(34.dp)
+                                                            .height(40.dp)
                                                             .testTag("switch_account_button"),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                                                     ) {
                                                         Text(
                                                             text = when (appLanguage) {
@@ -1973,7 +2081,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                                 "es" -> "Cambiar"
                                                                 else -> "Switch"
                                                             },
-                                                            style = MaterialTheme.typography.labelSmall,
+                                                            style = MaterialTheme.typography.labelMedium,
                                                             fontWeight = FontWeight.Bold
                                                         )
                                                     }
@@ -1985,13 +2093,13 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                         },
                                                         modifier = Modifier
                                                             .weight(1f)
-                                                            .height(34.dp)
+                                                            .height(40.dp)
                                                             .testTag("sign_out_button"),
-                                                        shape = RoundedCornerShape(8.dp),
+                                                        shape = RoundedCornerShape(10.dp),
                                                         colors = ButtonDefaults.outlinedButtonColors(
-                                                            contentColor = MaterialTheme.colorScheme.error
+                                                            contentColor = Color(0xFFFF8B8B)
                                                         ),
-                                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+                                                        border = BorderStroke(1.dp, Color(0xFFFF8B8B).copy(alpha = 0.4f))
                                                     ) {
                                                         Text(
                                                             text = when (appLanguage) {
@@ -1999,7 +2107,7 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                                 "es" -> "Salir"
                                                                 else -> "Sign Out"
                                                             },
-                                                            style = MaterialTheme.typography.labelSmall,
+                                                            style = MaterialTheme.typography.labelMedium,
                                                             fontWeight = FontWeight.Bold
                                                         )
                                                     }
@@ -2021,14 +2129,14 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                 },
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .height(40.dp)
+                                                    .height(44.dp)
                                                     .testTag("google_signin_button"),
-                                                shape = RoundedCornerShape(8.dp),
+                                                shape = RoundedCornerShape(10.dp),
                                                 colors = ButtonDefaults.buttonColors(
-                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    containerColor = Color.White.copy(alpha = 0.08f),
+                                                    contentColor = Color.White
                                                 ),
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
                                             ) {
                                                 Row(
                                                     horizontalArrangement = Arrangement.Center,
@@ -2037,7 +2145,8 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                                     Icon(
                                                         imageVector = Icons.Default.AccountCircle,
                                                         contentDescription = "Google Logo",
-                                                        modifier = Modifier.size(18.dp)
+                                                        modifier = Modifier.size(20.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
                                                     )
                                                     Spacer(modifier = Modifier.width(8.dp))
                                                     Text(
@@ -2055,22 +2164,27 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                     }
                                 }
                             }
+                            }
 
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                            // Action pill-shaped buttons Row
+                            // 6. BOTTOM ACTION BUTTON CONTROL ROW (matches photo perfectly)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 OutlinedButton(
                                     onClick = { showAccountDialog = false },
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(24.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                                        .height(54.dp),
+                                    shape = RoundedCornerShape(27.dp),
+                                    border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.15f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = Color.Transparent,
+                                        contentColor = Color.White
+                                    )
                                 ) {
                                     Text(
                                         text = when (appLanguage) {
@@ -2079,9 +2193,11 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                             else -> "Cancel"
                                         },
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        fontSize = 15.sp,
+                                        color = Color.White
                                     )
                                 }
+                                
                                 Button(
                                     onClick = {
                                         viewModel.setLocalAuthorProfile(editName, editBio)
@@ -2090,35 +2206,33 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                                     },
                                     modifier = Modifier
                                         .weight(1.2f)
-                                        .height(48.dp)
+                                        .height(54.dp)
                                         .testTag("save_profile_button"),
-                                    shape = RoundedCornerShape(24.dp),
+                                    shape = RoundedCornerShape(27.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary
-                                    ),
-                                    elevation = ButtonDefaults.buttonElevation(
-                                        defaultElevation = 2.dp,
-                                        pressedElevation = 4.dp
+                                        containerColor = MaterialTheme.colorScheme.primary, // Gorgeous pastel purple
+                                        contentColor = MaterialTheme.colorScheme.onPrimary    // Dark font ink color
                                     )
                                 ) {
                                     Row(
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
+                                            contentDescription = "Save icon",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(18.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = when (appLanguage) {
                                                 "ru" -> "Сохранить"
                                                 "es" -> "Guardar"
                                                 else -> "Save"
                                             },
-                                            fontWeight = FontWeight.Bold
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onPrimary
                                         )
                                     }
                                 }
@@ -2127,8 +2241,9 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                     }
                 }
             }
+        }
 
-            if (authErrorDialogMessage != null) {
+        if (authErrorDialogMessage != null) {
                 AlertDialog(
                     onDismissRequest = { authErrorDialogMessage = null },
                     title = {
@@ -2203,7 +2318,6 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                 )
             }
         }
-    }
 
     // --- Password Verification Dialog ---
     if (passwordProjectToUnlock != null) {
@@ -5489,11 +5603,16 @@ fun DocumentEditorScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val presets = listOf(
+                                Triple("paragraph", "Абзац", Icons.AutoMirrored.Filled.Notes),
+                                Triple("h1", "Заг.1", Icons.Default.Title),
+                                Triple("h2", "Заг.2", Icons.Default.Title),
+                                Triple("h3", "Заг.3", Icons.Default.Title),
+                                Triple("quote", "Цитата", Icons.Default.FormatQuote),
                                 Triple("scene", "Сцена", Icons.Filled.Movie),
                                 Triple("action", "Опис.", Icons.AutoMirrored.Filled.Notes),
                                 Triple("character", "Перс.", Icons.Filled.Person),
                                 Triple("dialogue", "Репл.", Icons.Filled.Chat),
-                                Triple("parenthetical", "Дейс.", Icons.Filled.FormatQuote)
+                                Triple("parenthetical", "Ремарка", Icons.Filled.FormatQuote)
                             )
                             presets.forEach { (typeId, label, icon) ->
                                 val isCurr = activeBlock?.type == typeId
@@ -5921,6 +6040,81 @@ fun DocumentEditorScreen(
                                                          blockTextValue = newVal
                                                          val rawText = newVal.text
                                                          
+                                                         // Slash command live converter
+                                                         if (rawText.startsWith("/")) {
+                                                             val lowerCmd = rawText.lowercase()
+                                                             val convertedType = when {
+                                                                 lowerCmd.startsWith("/scene") -> "scene"
+                                                                 lowerCmd.startsWith("/character") -> "character"
+                                                                 lowerCmd.startsWith("/dialogue") -> "dialogue"
+                                                                 lowerCmd.startsWith("/parenthetical") -> "parenthetical"
+                                                                 lowerCmd.startsWith("/action") -> "action"
+                                                                 lowerCmd.startsWith("/h1") -> "h1"
+                                                                 lowerCmd.startsWith("/h2") -> "h2"
+                                                                 lowerCmd.startsWith("/h3") -> "h3"
+                                                                 lowerCmd.startsWith("/quote") -> "quote"
+                                                                 lowerCmd.startsWith("/paragraph") -> "paragraph"
+                                                                 lowerCmd.startsWith("/p ") -> "paragraph"
+                                                                 else -> null
+                                                             }
+                                                             if (convertedType != null) {
+                                                                 val firstSpace = rawText.indexOf(" ")
+                                                                 val remainingText = if (firstSpace != -1) rawText.substring(firstSpace + 1) else ""
+                                                                 val updated = blocks.mapIndexed { idx, b ->
+                                                                     if (idx == index) b.copy(
+                                                                         type = convertedType,
+                                                                         text = remainingText,
+                                                                         alignment = when (convertedType) {
+                                                                             "character", "dialogue", "parenthetical" -> "CENTER"
+                                                                             "transition" -> "RIGHT"
+                                                                             else -> "LEFT"
+                                                                         }
+                                                                     ) else b
+                                                                 }
+                                                                 viewModel.updateEditorBlocks(updated)
+                                                                 blockTextValue = TextFieldValue(text = remainingText, selection = TextRange(remainingText.length))
+                                                                 return@label
+                                                             }
+                                                         }
+
+                                                         // Markdown live headers & quote shortcuts
+                                                         if (rawText.startsWith("# ")) {
+                                                             val remainingText = rawText.substring(2)
+                                                             val updated = blocks.mapIndexed { idx, b ->
+                                                                 if (idx == index) b.copy(type = "h1", text = remainingText, alignment = "LEFT") else b
+                                                             }
+                                                             viewModel.updateEditorBlocks(updated)
+                                                             blockTextValue = TextFieldValue(text = remainingText, selection = TextRange(remainingText.length))
+                                                             return@label
+                                                         }
+                                                         if (rawText.startsWith("## ")) {
+                                                             val remainingText = rawText.substring(3)
+                                                             val updated = blocks.mapIndexed { idx, b ->
+                                                                 if (idx == index) b.copy(type = "h2", text = remainingText, alignment = "LEFT") else b
+                                                             }
+                                                             viewModel.updateEditorBlocks(updated)
+                                                             blockTextValue = TextFieldValue(text = remainingText, selection = TextRange(remainingText.length))
+                                                             return@label
+                                                         }
+                                                         if (rawText.startsWith("### ")) {
+                                                             val remainingText = rawText.substring(4)
+                                                             val updated = blocks.mapIndexed { idx, b ->
+                                                                 if (idx == index) b.copy(type = "h3", text = remainingText, alignment = "LEFT") else b
+                                                             }
+                                                             viewModel.updateEditorBlocks(updated)
+                                                             blockTextValue = TextFieldValue(text = remainingText, selection = TextRange(remainingText.length))
+                                                             return@label
+                                                         }
+                                                         if (rawText.startsWith("> ")) {
+                                                             val remainingText = rawText.substring(2)
+                                                             val updated = blocks.mapIndexed { idx, b ->
+                                                                 if (idx == index) b.copy(type = "quote", text = remainingText, alignment = "LEFT") else b
+                                                              }
+                                                              viewModel.updateEditorBlocks(updated)
+                                                              blockTextValue = TextFieldValue(text = remainingText, selection = TextRange(remainingText.length))
+                                                              return@label
+                                                          }
+                                                         
                                                          // Backspace on empty block: delete block and move focus to previous block
                                                          if (rawText.isEmpty() && block.text.isEmpty() && index > 0) {
                                                              val list = blocks.toMutableList()
@@ -5989,10 +6183,68 @@ fun DocumentEditorScreen(
                                                             "dialogue" -> "Реплика персонажа..."
                                                             "parenthetical" -> "(шепотом)"
                                                             "h1" -> "Заголовок 1..."
-                                                            else -> "Введите текст..."
+                                                            else -> "Введите текст или / для выбора..."
                                                         },
                                                         style = textStyle.copy(color = Color.LightGray.copy(alpha = 0.5f))
                                                     )
+                                                }
+                                                if (block.text.startsWith("/")) {
+                                                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                                                        Text(
+                                                            text = if (appLanguage == "ru") "Нажмите, чтобы применить тип блока:" else "Tap to change block type:",
+                                                            fontSize = 10.sp,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Row(
+                                                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            val suggestions = listOf(
+                                                                "paragraph" to (if (appLanguage == "ru") "Абзац" else "Paragraph"),
+                                                                "scene" to (if (appLanguage == "ru") "Сцена" else "Scene"),
+                                                                "action" to (if (appLanguage == "ru") "Описание" else "Action"),
+                                                                "character" to (if (appLanguage == "ru") "Персонаж" else "Character"),
+                                                                "dialogue" to (if (appLanguage == "ru") "Реплика" else "Dialogue"),
+                                                                "parenthetical" to (if (appLanguage == "ru") "Ремарка" else "Parenthetical"),
+                                                                "h1" to "H1",
+                                                                "h2" to "H2",
+                                                                "h3" to "H3",
+                                                                "quote" to (if (appLanguage == "ru") "Цитата" else "Quote")
+                                                            )
+                                                            suggestions.forEach { (typeKey, label) ->
+                                                                Surface(
+                                                                    onClick = {
+                                                                        val updated = blocks.mapIndexed { idx, b ->
+                                                                            if (idx == index) b.copy(
+                                                                                type = typeKey,
+                                                                                text = "",
+                                                                                alignment = when (typeKey) {
+                                                                                    "character", "dialogue", "parenthetical" -> "CENTER"
+                                                                                    "transition" -> "RIGHT"
+                                                                                    else -> "LEFT"
+                                                                                }
+                                                                            ) else b
+                                                                        }
+                                                                        viewModel.updateEditorBlocks(updated)
+                                                                        blockTextValue = TextFieldValue(text = "", selection = TextRange(0))
+                                                                    },
+                                                                    shape = RoundedCornerShape(8.dp),
+                                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                                                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                                                                ) {
+                                                                    Text(
+                                                                        text = label,
+                                                                        fontSize = 11.sp,
+                                                                        fontWeight = FontWeight.Medium,
+                                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -6261,11 +6513,16 @@ fun DocumentEditorScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val presets = listOf(
+                                Triple("paragraph", "Абзац", Icons.AutoMirrored.Filled.Notes),
+                                Triple("h1", "Заг.1", Icons.Default.Title),
+                                Triple("h2", "Заг.2", Icons.Default.Title),
+                                Triple("h3", "Заг.3", Icons.Default.Title),
+                                Triple("quote", "Цитата", Icons.Default.FormatQuote),
                                 Triple("scene", "Сцена", Icons.Filled.Movie),
                                 Triple("action", "Опис.", Icons.AutoMirrored.Filled.Notes),
                                 Triple("character", "Перс.", Icons.Filled.Person),
                                 Triple("dialogue", "Репл.", Icons.Filled.Chat),
-                                Triple("parenthetical", "Дейс.", Icons.Filled.FormatQuote)
+                                Triple("parenthetical", "Ремарка", Icons.Filled.FormatQuote)
                             )
                             presets.forEach { (typeId, label, icon) ->
                                 val isCurr = activeBlock?.type == typeId
@@ -6402,6 +6659,32 @@ fun DocumentEditorScreen(
                                     contentDescription = "Вернуть",
                                     modifier = Modifier.size(18.dp),
                                     tint = if (canRedo) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { if (activeBlockIndex > 0) activeBlockIndex-- },
+                                enabled = activeBlockIndex > 0,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Предыдущий блок",
+                                    modifier = Modifier.size(24.dp),
+                                    tint = if (activeBlockIndex > 0) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { if (activeBlockIndex < blocks.size - 1) activeBlockIndex++ },
+                                enabled = activeBlockIndex < blocks.size - 1,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Следующий блок",
+                                    modifier = Modifier.size(24.dp),
+                                    tint = if (activeBlockIndex < blocks.size - 1) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f)
                                 )
                             }
                         }
@@ -9095,7 +9378,7 @@ fun DashboardTabItem(
 
     val contentColorAnimated by androidx.compose.animation.animateColorAsState(
         targetValue = if (isSelected) {
-            Color(0xFF11121C)
+            MaterialTheme.colorScheme.onPrimary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         },
