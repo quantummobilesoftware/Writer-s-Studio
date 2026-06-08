@@ -832,19 +832,27 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(l("sort_by", appLanguage), fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(76.dp))
-                            listOf(
-                                "MANUAL" to (if (appLanguage == "ru") "Порядок" else "Manual"),
-                                "UPDATED" to l("sort_changed", appLanguage),
-                                "NAME" to l("sort_name", appLanguage),
-                                "CREATED" to l("sort_created", appLanguage)
-                            ).forEach { (sortId, label) ->
-                                val isSelected = sortBy == sortId
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { viewModel.setProjectSortBy(sortId) },
-                                    label = { Text(label, fontSize = 11.sp) },
-                                    modifier = Modifier.padding(horizontal = 2.dp)
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(
+                                    "MANUAL" to (if (appLanguage == "ru") "Порядок" else "Manual"),
+                                    "UPDATED" to l("sort_changed", appLanguage),
+                                    "NAME" to l("sort_name", appLanguage),
+                                    "CREATED" to l("sort_created", appLanguage)
+                                ).forEach { (sortId, label) ->
+                                    val isSelected = sortBy == sortId
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setProjectSortBy(sortId) },
+                                        label = { Text(label, fontSize = 11.sp) },
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -854,20 +862,27 @@ fun ProjectsDashboardScreen(viewModel: WriterViewModel) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(l("category", appLanguage), fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(76.dp))
-                            Box(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    listOf("ALL" to l("cat_all", appLanguage), "BOOK" to l("cat_book", appLanguage), "SCREENPLAY" to l("cat_screenplay", appLanguage), "STORY" to l("cat_story", appLanguage), "TEXT" to l("cat_text", appLanguage)).forEach { (typeId, label) ->
-                                        val isSelected = searchCategoryFilter == typeId
-                                        FilterChip(
-                                            selected = isSelected,
-                                            onClick = { searchCategoryFilter = typeId },
-                                            label = { Text(label, fontSize = 10.sp) },
-                                            modifier = Modifier.padding(vertical = 2.dp)
-                                        )
-                                    }
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(
+                                    "ALL" to l("cat_all", appLanguage),
+                                    "BOOK" to l("cat_book", appLanguage),
+                                    "SCREENPLAY" to l("cat_screenplay", appLanguage),
+                                    "STORY" to l("cat_story", appLanguage),
+                                    "TEXT" to l("cat_text", appLanguage)
+                                ).forEach { (typeId, label) ->
+                                    val isSelected = searchCategoryFilter == typeId
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { searchCategoryFilter = typeId },
+                                        label = { Text(label, fontSize = 10.sp) },
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    )
                                 }
                             }
                         }
@@ -3802,7 +3817,14 @@ fun DocumentEditorScreen(
     val canUndo by viewModel.canUndo.collectAsStateWithLifecycle()
     val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
 
+
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    var showGeminiAssistant by remember { mutableStateOf(false) }
+    var geminiRequestType by remember { mutableStateOf("BLOCK") } // "BLOCK", "DOCUMENT"
+    var geminiPromptText by remember { mutableStateOf("") }
+    var geminiResultText by remember { mutableStateOf("") }
+    var isGeminiGenerating by remember { mutableStateOf(false) }
+    var geminiErrorMessage by remember { mutableStateOf<String?>(null) }
     var isTranslitEnabled by remember { mutableStateOf(false) }
     var isVirtualKeyboardVisible by remember { mutableStateOf(false) }
     var activeBlockIndex by remember { mutableStateOf(0) }
@@ -4154,6 +4176,500 @@ fun DocumentEditorScreen(
             dismissButton = {
                 TextButton(onClick = { showExportDialog = false }) {
                     Text(if (appLanguage == "ru") "Отмена" else "Cancel")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
+    }
+
+    // Unified Gemini Assistant Dialog for both BLOCK & DOCUMENT mode
+    if (showGeminiAssistant) {
+        var isBlockDropdownExpanded by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { if (!isGeminiGenerating) showGeminiAssistant = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Gemini",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = if (document?.isPlainText == true) {
+                            if (appLanguage == "ru") "Gemini: Помощник по тексту" else "Gemini: Text Assistant"
+                        } else if (geminiRequestType == "BLOCK") {
+                            if (appLanguage == "ru") "Gemini: Помощник по блокам" else "Gemini: Block Assistant"
+                        } else {
+                            if (appLanguage == "ru") "Gemini: Анализ Сценария" else "Gemini: Document Assistant"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val activeBlock = if (document?.isPlainText == true) blocks.getOrNull(0) else blocks.getOrNull(activeBlockIndex)
+                    val blockText = activeBlock?.text ?: ""
+
+                    if (document?.isPlainText == true) {
+                        Text(
+                            text = if (appLanguage == "ru") "Исходный текст документа:" else "Original document text:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 120.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            Text(
+                                text = blockText.ifBlank { if (appLanguage == "ru") "<пусто>" else "<empty>" },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else if (geminiRequestType == "BLOCK") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (appLanguage == "ru") "Выбранный блок:" else "Selected block:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            
+                            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                                val currentType = activeBlock?.type?.uppercase() ?: "---"
+                                val truncatedText = if (blockText.isBlank()) {
+                                    if (appLanguage == "ru") "<пустой>" else "<empty>"
+                                } else {
+                                    if (blockText.length > 20) blockText.take(20) + "..." else blockText
+                                }
+                                TextButton(
+                                    onClick = { isBlockDropdownExpanded = true },
+                                    modifier = Modifier.testTag("gemini_block_selector_btn")
+                                ) {
+                                    Text(
+                                        text = "#${activeBlockIndex + 1} [$currentType] $truncatedText ▾",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                
+                                DropdownMenu(
+                                    expanded = isBlockDropdownExpanded,
+                                    onDismissRequest = { isBlockDropdownExpanded = false },
+                                    modifier = Modifier.heightIn(max = 280.dp)
+                                ) {
+                                    blocks.forEachIndexed { idx, b ->
+                                        val itemText = b.text.ifBlank { if (appLanguage == "ru") "<пустой>" else "<empty>" }
+                                        val labelText = "#${idx + 1} [${b.type.uppercase()}] ${if (itemText.length > 25) itemText.take(25) + "..." else itemText}"
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = labelText,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (idx == activeBlockIndex) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (idx == activeBlockIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            },
+                                            onClick = {
+                                                activeBlockIndex = idx
+                                                isBlockDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = if (blockText.isBlank()) (if (appLanguage == "ru") "<пусто>" else "<empty>") else if (blockText.length > 150) blockText.take(150) + "..." else blockText,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        val totalWords = metrics.words
+                        Text(
+                            text = if (appLanguage == "ru") "Целый документ ($totalWords слов):" else "Active document ($totalWords words):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = if (appLanguage == "ru") "Быстрые действия AI:" else "AI Quick Actions:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val promptChips = if (document?.isPlainText == true || geminiRequestType == "BLOCK") {
+                            listOf(
+                                Pair(
+                                    if (appLanguage == "ru") "💡 Продолжить" else "💡 Continue",
+                                    if (appLanguage == "ru") "Продолжи писать этот абзац, сохранив интонацию и стиль автора." else "Continue writing this text block, preserving the author's tone and style."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "✍️ Переписать" else "✍️ Rewrite",
+                                    if (appLanguage == "ru") "Перепиши этот фрагмент текста более красноречиво, художественно и увлекательно." else "Rewrite this text fragment to make it more expressive, artistic, and engaging."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "📈 Расширить" else "📈 Expand",
+                                    if (appLanguage == "ru") "Сделай этот фрагмент текста более развернутым, добавь кинематографических деталей и красок." else "Expand this text fragment, adding cinematic detail and vivid imagery."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "📉 Сократить" else "📉 Shorten",
+                                    if (appLanguage == "ru") "Сократи этот фрагмент сценария до самой сути, убрав лишнюю воду." else "Shorten this script fragment to its absolute core essence, removing excess filler."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "🌐 На Английский" else "🌐 To English",
+                                    if (appLanguage == "ru") "Переведи этот фрагмент сценария на английский язык." else "Translate this screenplay fragment into English."
+                                )
+                            )
+                        } else {
+                            listOf(
+                                Pair(
+                                    if (appLanguage == "ru") "📝 Краткий обзор" else "📝 Summarize",
+                                    if (appLanguage == "ru") "Сделай подробное краткое изложение этого сценария с ключевыми сюжетными линиями и конфликтом." else "Write a comprehensive summary of this script, outlining key plot lines and main conflict."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "📊 Анализ сюжета" else "📊 Analyze Plot",
+                                    if (appLanguage == "ru") "Проведи подробный критический разбор сюжета, темпоритма, укажи сильные места и что можно улучшить." else "Perform a detailed evaluation of plot dynamics and pacing, highlight strengths and areas for improvement."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "👥 Характеры" else "👥 Characters",
+                                    if (appLanguage == "ru") "Проанализируй персонажей сценария и составь психологический профиль для каждого." else "Analyze characters within the text and compile a psychological profile summary for active ones."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "👁️ План сцен" else "👁️ Outline Scenes",
+                                    if (appLanguage == "ru") "Сопоставь сюжет с классической схемой кинопроизводства и распиши побитный план сцен." else "Map this script against industry standard storytelling structures and outline scene beats."
+                                ),
+                                Pair(
+                                    if (appLanguage == "ru") "🔮 Идеи продолжения" else "🔮 Predict ideas",
+                                    if (appLanguage == "ru") "Предложи 3 неожиданных и креативных сюжетных поворота для дальнейшего развития истории." else "Propose 3 unexpected and highly creative plot twists for continuing this script story."
+                                )
+                            )
+                        }
+
+                        promptChips.forEach { (label, actionPrompt) ->
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    geminiPromptText = actionPrompt
+                                },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = geminiPromptText,
+                        onValueChange = { geminiPromptText = it },
+                        label = { Text(if (appLanguage == "ru") "Опишите запрос или выберите быстрый выше" else "Write custom instructions or select preset actions") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 4,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    if (isGeminiGenerating) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = if (appLanguage == "ru") "Gemini анализирует..." else "Gemini is writing...",
+                                fontSize = 11.sp,
+                                fontStyle = FontStyle.Italic,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                if (geminiPromptText.isNotBlank()) {
+                                    isGeminiGenerating = true
+                                    geminiErrorMessage = null
+                                    
+                                    coroutineScope.launch {
+                                        val fullPrompt = if (document?.isPlainText == true) {
+                                            val text = blocks.firstOrNull()?.text ?: ""
+                                            "You are an expert Hollywood writer and screenplay consultant.\n\n" +
+                                            "Context - original document text:\n\"$text\"\n\n" +
+                                            "Action required:\n$geminiPromptText\n\n" +
+                                            "Return ONLY the updated block text, without markdown wrappers (like ```txt or ```), without intro/outro commentary. Start directly with the text."
+                                        } else if (geminiRequestType == "BLOCK") {
+                                            val activeBlock = blocks.getOrNull(activeBlockIndex)
+                                            val text = activeBlock?.text ?: ""
+                                            "You are an expert Hollywood co-writer.\n\n" +
+                                            "Context - active block text:\n\"$text\"\n\n" +
+                                            "Action required:\n$geminiPromptText\n\n" +
+                                            "Return ONLY the updated block text, without markdown wrappers (like ```txt or ```), without intro/outro commentary. Start directly with the text."
+                                        } else {
+                                            val concatText = blocks.joinToString("\n\n") { b ->
+                                                "[Type: ${b.type.uppercase()}]\n${b.text}"
+                                            }
+                                            "You are a professional script analyzer and critic.\n\n" +
+                                            "Screenplay content:\n$concatText\n\n" +
+                                            "User instructions / task:\n$geminiPromptText\n\n" +
+                                            "Deliver a highly polished response with clear layout headings and structured bullets."
+                                        }
+
+                                        val systemInstruction = if (document?.isPlainText == true) {
+                                            "You are a helpful co-writer and screenplay assistant."
+                                        } else if (geminiRequestType == "BLOCK") {
+                                            "You are a helpful co-writer. You respond only with revised screenplay lines."
+                                        } else {
+                                            "You are a skilled screenplay consultant."
+                                        }
+
+                                        val res = com.example.util.GeminiService.generateContent(fullPrompt, systemInstruction)
+                                        if (res.isSuccess) {
+                                            geminiResultText = res.getOrThrow()
+                                        } else {
+                                            val err = res.exceptionOrNull()
+                                            geminiErrorMessage = err?.message ?: "Internet call failed"
+                                        }
+                                        isGeminiGenerating = false
+                                    }
+                                }
+                            },
+                            enabled = geminiPromptText.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (appLanguage == "ru") "Сгенерировать в Gemini" else "Process in Gemini")
+                        }
+                    }
+
+                    if (geminiErrorMessage != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "⚠️ " + (geminiErrorMessage ?: ""),
+                                modifier = Modifier.padding(10.dp),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    if (geminiResultText.isNotBlank()) {
+                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        Text(
+                            text = if (appLanguage == "ru") "Результат Gemini:" else "Gemini response:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 240.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            androidx.compose.foundation.text.selection.SelectionContainer {
+                                Text(
+                                    text = geminiResultText,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontFamily = FontFamily.Serif
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = if (appLanguage == "ru") "Применить результат:" else "Apply action:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (document?.isPlainText == true) {
+                                Button(
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    onClick = {
+                                        val b = blocks.firstOrNull() ?: EditorBlock(type = "paragraph", text = "")
+                                        viewModel.updateEditorBlocks(listOf(b.copy(text = geminiResultText)))
+                                        showGeminiAssistant = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (appLanguage == "ru") "Заменить" else "Replace",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                Button(
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    onClick = {
+                                        val b = blocks.firstOrNull() ?: EditorBlock(type = "paragraph", text = "")
+                                        val updatedText = if (b.text.isEmpty()) geminiResultText else b.text + "\n\n" + geminiResultText
+                                        viewModel.updateEditorBlocks(listOf(b.copy(text = updatedText)))
+                                        showGeminiAssistant = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (appLanguage == "ru") "Добавить" else "Append",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            } else if (geminiRequestType == "BLOCK") {
+                                Button(
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    onClick = {
+                                        val activeBlock = blocks.getOrNull(activeBlockIndex)
+                                        if (activeBlock != null) {
+                                            val updated = blocks.mapIndexed { idx, b ->
+                                                if (idx == activeBlockIndex) b.copy(text = geminiResultText) else b
+                                            }
+                                            viewModel.updateEditorBlocks(updated)
+                                            showGeminiAssistant = false
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (appLanguage == "ru") "Заменить" else "Replace",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                Button(
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    onClick = {
+                                        val activeBlock = blocks.getOrNull(activeBlockIndex)
+                                        if (activeBlock != null) {
+                                            val list = blocks.toMutableList()
+                                            val nextType = if (activeBlock.type == "character") "dialogue" else activeBlock.type
+                                            val newB = EditorBlock(type = nextType, text = geminiResultText)
+                                            list.add(activeBlockIndex + 1, newB)
+                                            viewModel.updateEditorBlocks(list)
+                                            activeBlockIndex = activeBlockIndex + 1
+                                            showGeminiAssistant = false
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (appLanguage == "ru") "Вставить" else "Insert",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            } else {
+                                Button(
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    onClick = {
+                                        val list = blocks.toMutableList()
+                                        val newB = EditorBlock(type = "paragraph", text = "--- AI ANALYSIS ---\n\n$geminiResultText")
+                                        list.add(newB)
+                                        viewModel.updateEditorBlocks(list)
+                                        activeBlockIndex = list.size - 1
+                                        showGeminiAssistant = false
+                                        editorTab = "BLOCKS"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (appLanguage == "ru") "В конец файла" else "Append text",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("Gemini result", geminiResultText)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, if (appLanguage == "ru") "Скопировано!" else "Copied!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                                    .size(40.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { if (!isGeminiGenerating) showGeminiAssistant = false }) {
+                    Text(if (appLanguage == "ru") "Закрыть" else "Close")
                 }
             },
             shape = RoundedCornerShape(24.dp)
@@ -4611,6 +5127,23 @@ fun DocumentEditorScreen(
                                 imageVector = Icons.Default.TextFields,
                                 contentDescription = "Font Settings",
                                 tint = if (isFormatSettingsVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                geminiRequestType = "BLOCK"
+                                activeBlockIndex = 0
+                                geminiPromptText = ""
+                                geminiResultText = ""
+                                geminiErrorMessage = null
+                                showGeminiAssistant = true
+                            },
+                            modifier = Modifier.testTag("top_gemini_assist_btn_basic")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = if (appLanguage == "ru") "Gemini AI" else "Gemini AI",
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                         IconButton(onClick = { isSearchPanelVisible = !isSearchPanelVisible }) {
@@ -5195,6 +5728,19 @@ fun DocumentEditorScreen(
                             }
                         },
                         actions = {
+                            IconButton(onClick = {
+                                geminiRequestType = if (editorTab == "BLOCKS") "BLOCK" else "DOCUMENT"
+                                geminiPromptText = ""
+                                geminiResultText = ""
+                                geminiErrorMessage = null
+                                showGeminiAssistant = true
+                            }, modifier = Modifier.testTag("top_gemini_assist_btn")) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = if (appLanguage == "ru") "Gemini AI Помощник" else "Gemini AI Assistant",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             IconButton(onClick = { isSearchPanelVisible = !isSearchPanelVisible }) {
                                 Icon(Icons.Filled.Search, l("find_replace", appLanguage))
                             }
@@ -5428,6 +5974,23 @@ fun DocumentEditorScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 IconButton(
+                                    onClick = {
+                                        geminiRequestType = "BLOCK"
+                                        geminiPromptText = ""
+                                        geminiResultText = ""
+                                        geminiErrorMessage = null
+                                        showGeminiAssistant = true
+                                    },
+                                    modifier = Modifier.size(38.dp).testTag("editor_gemini_block")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Gemini",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(
                                     onClick = { pickerLauncher.launch("image/*") },
                                     modifier = Modifier.size(38.dp).testTag("editor_insert_image")
                                 ) {
@@ -5521,6 +6084,22 @@ fun DocumentEditorScreen(
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = RoundedCornerShape(20.dp),
                     modifier = Modifier.testTag("fab_add_block")
+                )
+            } else if (editorTab == "DOCUMENT" && !isKeyboardVisible && !isReadingMode) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        geminiRequestType = "DOCUMENT"
+                        geminiPromptText = ""
+                        geminiResultText = ""
+                        geminiErrorMessage = null
+                        showGeminiAssistant = true
+                    },
+                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Gemini", tint = MaterialTheme.colorScheme.primary) },
+                    text = { Text(if (appLanguage == "ru") "Анализ Gemini" else "Gemini Analysis") },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.testTag("fab_gemini_doc")
                 )
             }
         }
@@ -6286,6 +6865,114 @@ fun DocumentEditorScreen(
                         }
                     }
 
+                    if (!isReadingMode) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f))
+                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                .padding(vertical = 6.dp, horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (appLanguage == "ru") "Выбран блок:" else "Selected block:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                
+                                Box {
+                                    var isBlockSelectorExpanded by remember { mutableStateOf(false) }
+                                    val activeBlock = blocks.getOrNull(activeBlockIndex)
+                                    val currentType = activeBlock?.type?.uppercase() ?: "---"
+                                    val blockText = activeBlock?.text ?: ""
+                                    val truncatedText = if (blockText.isBlank()) {
+                                        if (appLanguage == "ru") "<пустой>" else "<empty>"
+                                    } else {
+                                        if (blockText.length > 25) blockText.take(25) + "..." else blockText
+                                    }
+                                    
+                                    TextButton(
+                                        onClick = { isBlockSelectorExpanded = true },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp).testTag("action_bar_block_selector_btn")
+                                    ) {
+                                        Text(
+                                            text = "#${activeBlockIndex + 1} [$currentType] $truncatedText ▾",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    
+                                    DropdownMenu(
+                                        expanded = isBlockSelectorExpanded,
+                                        onDismissRequest = { isBlockSelectorExpanded = false },
+                                        modifier = Modifier.heightIn(max = 280.dp)
+                                    ) {
+                                        blocks.forEachIndexed { idx, b ->
+                                            val itemText = b.text.ifBlank { if (appLanguage == "ru") "<пустой>" else "<empty>" }
+                                            val labelText = "#${idx + 1} [${b.type.uppercase()}] ${if (itemText.length > 25) itemText.take(25) + "..." else itemText}"
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        text = labelText,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = if (idx == activeBlockIndex) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (idx == activeBlockIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                },
+                                                onClick = {
+                                                    activeBlockIndex = idx
+                                                    isBlockSelectorExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        geminiRequestType = "BLOCK"
+                                        geminiPromptText = ""
+                                        geminiResultText = ""
+                                        geminiErrorMessage = null
+                                        showGeminiAssistant = true
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    colors = ButtonDefaults.textButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    ),
+                                    modifier = Modifier.height(28.dp).testTag("action_bar_gemini_block_btn")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Gemini",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (appLanguage == "ru") "Gemini блока" else "Block Gemini",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Scene quick jump index chips bar
                     if (scenesList.isNotEmpty() && !isReadingMode) {
                         Row(
@@ -6370,8 +7057,26 @@ fun DocumentEditorScreen(
                                 contentPadding = PaddingValues(vertical = 24.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(blocks) { rBlock ->
+                                itemsIndexed(blocks) { index, rBlock ->
                                     val formattedContent = rBlock.text
+                                    val isSelected = index == activeBlockIndex
+                                    val accentColor = getBlockAccentColor(rBlock.type)
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(if (isSelected) accentColor.copy(alpha = 0.08f) else Color.Transparent)
+                                            .border(
+                                                width = if (isSelected) 1.dp else 0.dp,
+                                                color = if (isSelected) accentColor.copy(alpha = 0.3f) else Color.Transparent,
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            .clickable { activeBlockIndex = index }
+                                            .padding(if (isSelected) 8.dp else 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(modifier = Modifier.weight(1f)) {
                                     
                                     when (rBlock.type) {
                                         "scene" -> {
@@ -6483,6 +7188,32 @@ fun DocumentEditorScreen(
                                                     .padding(vertical = 6.dp)
                                             )
                                         }
+                                    }
+                                    }
+
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        IconButton(
+                                            onClick = {
+                                                geminiRequestType = "BLOCK"
+                                                geminiPromptText = ""
+                                                geminiResultText = ""
+                                                geminiErrorMessage = null
+                                                showGeminiAssistant = true
+                                            },
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                                                .testTag("doc_gemini_assist_row_${index}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = "Gemini",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
                                     }
                                 }
                             }
@@ -6801,6 +7532,24 @@ fun DocumentEditorScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            IconButton(
+                                onClick = {
+                                    geminiRequestType = "BLOCK"
+                                    geminiPromptText = ""
+                                    geminiResultText = ""
+                                    geminiErrorMessage = null
+                                    showGeminiAssistant = true
+                                },
+                                modifier = Modifier.size(36.dp).testTag("keyboard_gemini_block")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Gemini",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
                             IconButton(
                                 onClick = { pickerLauncher.launch("image/*") },
                                 modifier = Modifier.size(36.dp)
